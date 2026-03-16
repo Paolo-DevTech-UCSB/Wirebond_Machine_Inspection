@@ -146,3 +146,11 @@ print("Top weight:", top_weight)
 print("Bottom weight:", bottom_weight)
 print("Left weight:", left_weight)
 print("Right weight:", right_weight)
+
+if top_weight > bottom_weight:
+    print("More weight in the top half")
+else:    print("More weight in the bottom half")
+
+if left_weight > right_weight:
+    print("More weight in the left half")
+else:    print("More weight in the right half")
