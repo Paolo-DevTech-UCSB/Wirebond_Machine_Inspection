@@ -10,7 +10,7 @@ def Main(Current_Module, Image_Name):
     Current_Module = "MHF1WCSB0005"  # Set the current module name
 
     working_dir = os.getcwd()  # Get current working directory
-    img = Image.open(os.path.join(working_dir, "Training_Images", Current_Module, Image_Name))  # Open the image file
+    img = Image.open(os.path.join(working_dir, "Example_Training_Images", Current_Module, Image_Name))  # Open the image file
     # "C:\Users\Admin\Documents\GitHub\Wirebond_Machine_Inspection\Training_Images\MHF1WCSB0005\1_13_14.png"
     #img.show()
     #pixels = img.load()  # Access pixel data

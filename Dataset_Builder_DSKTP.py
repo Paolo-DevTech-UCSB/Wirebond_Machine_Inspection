@@ -3,14 +3,16 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import Inital_Image_Processor_DSKTP as IIP
-
+from wb_config import RAW_DIR, PROCESSED_DIR
 
 def Main(Current_Module, Image_Name):
-    Current_Module = "MHF1WCSB0005"  # Set the current module name
+    # Build full path to the raw image on the Desktop
+    img_path = os.path.join(RAW_DIR, Current_Module, Image_Name)
 
-    working_dir = os.getcwd()  # Get current working directory
-    img = Image.open(os.path.join(working_dir, "Training_Images", Current_Module, Image_Name))  # Open the image file
+    # Load the image
+    img = Image.open(img_path)
 
+    # Run your image processor to get offsets + flip flag
     PCBX, PCBY, more_above = IIP.Main(Current_Module, Image_Name)
 
     cropped_img = img.crop((400 + PCBX, 375 + PCBY, 1400 + PCBX, 1200 + PCBY))  # Crop the image to a 1000x825 area centered around the PCB hole
