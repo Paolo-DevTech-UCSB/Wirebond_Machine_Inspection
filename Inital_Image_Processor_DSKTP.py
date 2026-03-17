@@ -475,7 +475,7 @@ def Main(Current_Module, Image_Name):
 
     return (round(x_feedback)), (round(y_feedback)), more_above
 
-PCBX, PCBY, more_above = Main("MHF1WCSB0005", "2_3_15.png")
+#PCBX, PCBY, more_above = Main("MHF1WCSB0005", "2_3_15.png")
 
-print("PCB Stepped Hole Center:", PCBX, PCBY)
+#print("PCB Stepped Hole Center:", PCBX, PCBY)
 

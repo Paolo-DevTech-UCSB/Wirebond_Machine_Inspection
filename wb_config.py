@@ -16,6 +16,3 @@ os.makedirs(RAW_DIR, exist_ok=True)
 os.makedirs(PROCESSED_DIR, exist_ok=True)
 os.makedirs(LABEL_DIR, exist_ok=True)
 
-print("RAW_DIR =", RAW_DIR)
-print("PROCESSED_DIR =", PROCESSED_DIR)
-print("LABEL_DIR =", LABEL_DIR)
