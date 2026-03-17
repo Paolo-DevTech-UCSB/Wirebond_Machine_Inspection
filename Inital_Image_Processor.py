@@ -54,31 +54,29 @@ new_image.putdata(new_image_data)
 new_image.show()
 
 def mask_generater(cropped_img, x_feedback, y_feedback):
-    
-        sized_mask_data = []
-        width, height = cropped_img.size
-        x_offset = width + int(x_feedback); y_offset = height - int(y_feedback)
-        print("x_offset:", x_offset, "y_offset:", y_offset)
-        pixels = cropped_img.load()
 
-        for y in range(height):
-            for x in range(width):
-                r, g, b = pixels[x, y]
-                R = ((x - x_offset/2)**2 + (y - y_offset/2)**2)**0.5  # Calculate distance from center
+    sized_mask_data = []
+    width, height = cropped_img.size
+    pixels = cropped_img.load()
 
-                # Now you have BOTH:
-                # - pixel value (r, g, b)
-                # - pixel location (x, y)
+    center_x = width/2 + round(x_feedback)
+    center_y = height/2 + round(y_feedback)
 
-                # Example: turn top-left 100×100 region black
-                if R*2 > 725 and R*2 < 800:      #R*2 is diameter, 725 and 880 are the inner and outer diameter of the ring mask, respectively.
-                    sized_mask_data.append((255, 0, 0))
-                else:
-                    sized_mask_data.append((0, 0, 0))
+    print("center_x:", center_x, "center_y:", center_y)
 
-        sized_mask = Image.new("RGB", cropped_img.size)
-        sized_mask.putdata(sized_mask_data)
-        return sized_mask
+    for y in range(height):
+        for x in range(width):
+            r, g, b = pixels[x, y]
+            R = ((x - center_x)**2 + (y - center_y)**2)**0.5
+
+            if 725 < R*2 < 800:
+                sized_mask_data.append((255, 0, 0))
+            else:
+                sized_mask_data.append((0, 0, 0))
+
+    sized_mask = Image.new("RGB", cropped_img.size)
+    sized_mask.putdata(sized_mask_data)
+    return sized_mask
 
 def is_one(pixel):
     r, g, b = pixel
@@ -143,27 +141,314 @@ def weight_distribution(and_img):
 x_feedback = 0
 y_feedback = 0
 strength = 5000  # Adjust this value to control how much the feedback influences the mask size. Higher means less influence.
-for interation in range(5):
+tol = 750  # or 800 if you want to be looser
+for iteration in range(10):
     # Next Step: Apply a Ring shped Mask, use weight to increase the precision of mask. 
-    print("X feedback:", x_feedback, int(x_feedback))
-    print("Y feedback:", y_feedback, int(y_feedback))
+    #print("X feedback:", x_feedback, int(x_feedback))
+    #print("Y feedback:", y_feedback, int(y_feedback))
     sized_mask = mask_generater(cropped_img, x_feedback=x_feedback, y_feedback=y_feedback)
 
     # AND GATE IMAGE, when image 1 is red, and image 2 is white, the output is white, otherwise black.
     and_img = AND_mask(new_image, sized_mask) 
-    and_img.show()
+    #and_img.show()
 
     # Measure weight distribution in the AND image
     weights = weight_distribution(and_img)
 
-    print("Top weight:", weights[0], "Bottom weight:", weights[1], "-- Difference:", weights[0] - weights[1])
-    print("Left weight:", weights[2], "Right weight:", weights[3], "-- Difference:", weights[2] - weights[3])
-    print()
-    print("Weights sum:", sum(weights))
+    #print("Top weight:", weights[0], "Bottom weight:", weights[1], "-- Difference:", weights[0] - weights[1])
+    #print("Left weight:", weights[2], "Right weight:", weights[3], "-- Difference:", weights[2] - weights[3])
+    #print()
+    #print("Weights sum:", sum(weights))
 
+    top_bottom = weights[0] - weights[1]
+    left_right = weights[2] - weights[3]
 
-    x_feedback = (weights[0] - weights[1])/(strength)  # Positive means more weight in the top half, negative means more weight in the bottom half
-    y_feedback = (weights[2] - weights[3])/(strength)  # Positive means more weight in the left half, negative means more weight in the right half
+     # ---- EARLY STOP CONDITION GOES HERE ----
+    if abs(top_bottom) < tol and abs(left_right) < tol:
+        #print("Converged early at iteration", iteration)
+        break
+    # ----------------------------------------
+
+    # Horizontal correction (left-right)
+    x_feedback += (weights[2] - weights[3]) / strength
+
+    # Vertical correction (top-bottom)
+    y_feedback += (weights[0] - weights[1]) / strength  # Positive means more weight in the left half, negative means more weight in the right half
  
-print("Final X feedback:", x_feedback)
-print("Final Y feedback:", y_feedback)  
+print("Final X feedback:", x_feedback, "-->", round(x_feedback))
+print("Final Y feedback:", y_feedback, "-->", round(y_feedback))   
+
+width, height = cropped_img.size
+print("PCB Stepped hole caculated Center: (", width + round(x_feedback), ",", height + round(y_feedback), ")")
+
+
+##### This next section needs to find the location of the mercedes symbol,
+##### Filtering Everything But Silicon Black will be the first step, 
+
+d = cropped_img.getdata()
+filtered_image_data = []
+for item in d:
+    width, height = cropped_img.size
+    r, g, b = item
+    brightness = r + g + b
+
+    # Default output is the original pixel
+    out = item
+
+    # Brightness filter
+    if brightness < 140:
+        out = (255, 255, 255)
+
+    else: out = (0, 0, 0)
+    filtered_image_data.append(out)
+
+# reconstruction:
+filtered_new_image = Image.new("RGB", cropped_img.size)
+filtered_new_image.putdata(filtered_image_data)
+
+filtered_image_data = []
+width, height = filtered_new_image.size
+pixels = filtered_new_image.load()
+
+center_x = width/2
+center_y = height/2
+
+sum_x = 0
+sum_y = 0
+count = 0
+
+print("center_x:", center_x, "center_y:", center_y)
+
+for y in range(height):
+    for x in range(width):
+        r, g, b = pixels[x, y]
+        R = ((x - center_x)**2 + (y - center_y)**2)**0.5
+
+        if R < 200 and r == 255 and g == 255 and b == 255:
+            filtered_image_data.append((255, 255, 255))
+            sum_x += x
+            sum_y += y
+            count += 1
+        else:
+            filtered_image_data.append((0, 0, 0))
+
+if count > 0:
+    center_of_mass_x = sum_x / count
+    center_of_mass_y = sum_y / count
+    print("Center of Mass:", center_of_mass_x, center_of_mass_y)
+else:
+    print("No white pixels found")
+
+
+circled_new_image = Image.new("RGB", cropped_img.size)
+circled_new_image.putdata(filtered_image_data)
+
+circled_new_image.show()
+
+filtered_image_data = []
+width, height = filtered_new_image.size
+pixels = filtered_new_image.load()
+
+green_list = []
+blue_list = []
+
+for y in range(height):
+    for x in range(width):
+        r, g, b = pixels[x, y]
+        R = ((x - center_of_mass_x)**2 + (y - center_of_mass_y)**2)**0.5
+
+        if 50 < R < 75 and r == 255 and g == 255 and b == 255:
+            filtered_image_data.append((0, 255, 0))
+            green_list.append((x, y))
+        elif 150 < R < 175 and r == 255 and g == 255 and b == 255:
+            filtered_image_data.append((0, 0, 255)) 
+            blue_list.append((x, y))
+        elif r == 255 and g == 255 and b == 255:
+            filtered_image_data.append((255, 255, 255))
+        else:
+            filtered_image_data.append((0, 0, 0))
+
+linear_Points_image = Image.new("RGB", cropped_img.size)
+linear_Points_image.putdata(filtered_image_data)
+
+linear_Points_image.show()
+
+Rad_Green = []
+for point in green_list:
+    x, y = point
+    theta = np.arctan2(y - center_of_mass_y, x - center_of_mass_x)
+    distance = ((x - center_of_mass_x)**2 + (y - center_of_mass_y)**2)**0.5
+    Rad_Green.append((theta, distance))
+
+Rad_Blue = []
+for point in blue_list:
+    x, y = point
+    theta = np.arctan2(y - center_of_mass_y, x - center_of_mass_x)
+    distance = ((x - center_of_mass_x)**2 + (y - center_of_mass_y)**2)**0.5
+    Rad_Blue.append((theta, distance))  
+
+def sort_by_theta(points):
+    list_low_pi = []
+    list_mid_pi = []
+    list_high_pi = []
+
+    for theta, r in points:
+        # normalize angle to [0, 2π)
+        if theta < 0:
+            theta += 2*np.pi
+
+        # Your old custom angular windows
+        if 0 <= theta < np.pi*(1/3):
+            list_low_pi.append((theta, r))
+
+        elif np.pi*(1/3) <= theta < np.pi*(2/3):
+            list_low_pi.append((theta, r))
+
+        elif np.pi*(2/3) <= theta < np.pi:
+            list_mid_pi.append((theta, r))
+
+        elif np.pi*(9/8) <= theta < np.pi*(4/3):
+            list_mid_pi.append((theta, r))
+
+        elif np.pi*(4/3) <= theta < np.pi*(5/3):
+            list_high_pi.append((theta, r))
+
+        elif np.pi*(5/3) <= theta < np.pi*(17/8):
+            list_high_pi.append((theta, r))
+
+    return list_low_pi, list_mid_pi, list_high_pi
+low, mid, high = sort_by_theta(Rad_Blue)
+
+def list_avg(points):
+    if len(points) == 0:
+        return None, None
+
+    sum_theta = 0
+    sum_r = 0
+
+    for theta, r in points:
+        sum_theta += theta
+        sum_r += r
+
+    return sum_theta / len(points), sum_r / len(points)
+
+def list_to_point(points):
+    if len(points) == 0:
+        return None, None
+
+    sx = 0
+    sy = 0
+
+    for theta, r in points:
+        # Convert polar → Cartesian
+        x = center_of_mass_x + r * np.cos(theta)
+        y = center_of_mass_y + r * np.sin(theta)
+
+        sx += x
+        sy += y
+
+    return sx / len(points), sy / len(points)
+
+lowTheta, lowR = list_avg(low)
+midTheta, midR = list_avg(mid) 
+highTheta, highR = list_avg(high)
+
+G1_x = center_of_mass_x + lowR * np.cos(lowTheta)
+G1_y = center_of_mass_y + lowR * np.sin(lowTheta)   
+G2_x = center_of_mass_x + midR * np.cos(midTheta)
+G2_y = center_of_mass_y + midR * np.sin(midTheta)   
+G3_x = center_of_mass_x + highR * np.cos(highTheta)
+G3_y = center_of_mass_y + highR * np.sin(highTheta) 
+
+print("Green Centroids:")
+print("G1:", G1_x, G1_y)   
+print("G2:", G2_x, G2_y)
+print("G3:", G3_x, G3_y)   
+
+
+low, mid, high = sort_by_theta(Rad_Green)
+lowTheta, lowR = list_avg(low)
+midTheta, midR = list_avg(mid) 
+highTheta, highR = list_avg(high)
+
+B1_x = center_of_mass_x + lowR * np.cos(lowTheta)
+B1_y = center_of_mass_y + lowR * np.sin(lowTheta)   
+B2_x = center_of_mass_x + midR * np.cos(midTheta)
+B2_y = center_of_mass_y + midR * np.sin(midTheta)   
+B3_x = center_of_mass_x + highR * np.cos(highTheta)
+B3_y = center_of_mass_y + highR * np.sin(highTheta) 
+
+print("Blue Centroids:")
+print("B1:", B1_x, B1_y)
+print("B2:", B2_x, B2_y)
+print("B3:", B3_x, B3_y)
+
+##y = mx + b
+m1 = (B1_y - G1_y) / (B1_x - G1_x)
+m2 = (B2_y - G2_y) / (B2_x - G2_x)
+m3 = (B3_y - G3_y) / (B3_x - G3_x)
+
+b1 = (m1 * G1_x)*-1  + G1_y
+b2 = (m2 * G2_x)*-1  + G2_y
+b3 = (m3 * G3_x)*-1  + G3_y
+
+# intersection of line 1 and 2
+X = (b2 - b1) / (m1 - m2)
+Y = m1 * X + b1
+
+print("Vector From COM to Calculated Center: (", X - center_of_mass_x, ",", Y - center_of_mass_y, ")")
+Vector_Magnitude = ((X - center_of_mass_x)**2 + (Y - center_of_mass_y)**2)**0.5
+print("Magnitude of Vector:", Vector_Magnitude)
+
+X_component = (X - center_of_mass_x)
+Y_component = (Y - center_of_mass_y)
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+img = np.array(cropped_img)
+
+plt.figure(figsize=(8, 8))
+plt.imshow(img)
+plt.title("Mercedes Geometry Overlay")
+plt.axis('off')
+
+# --- plot centroids ---
+plt.scatter([G1_x, G2_x, G3_x], [G1_y, G2_y, G3_y],
+            color='lime', s=80, label='Green centroids')
+plt.scatter([B1_x, B2_x, B3_x], [B1_y, B2_y, B3_y],
+            color='cyan', s=80, label='Blue centroids')
+
+# --- plot COM ---
+plt.scatter([center_of_mass_x], [center_of_mass_y],
+            color='orange', s=120, marker='x', label='Rough COM')
+
+# --- plot intersection ---
+plt.scatter([X], [Y],
+            color='red', s=150, marker='*', label='Calculated center')
+
+# --- draw lines ---
+def draw_line(m, b, color):
+    xs = np.array([0, img.shape[1]])
+    ys = m * xs + b
+    plt.plot(xs, ys, color=color, linewidth=2)
+
+draw_line(m1, b1, 'magenta')
+draw_line(m2, b2, 'yellow')
+draw_line(m3, b3, 'white')
+
+# --- draw vector from COM → Calculated Center ---
+plt.arrow(
+    center_of_mass_x, center_of_mass_y,
+    X - center_of_mass_x, Y - center_of_mass_y,
+    color='red',
+    width=1.0,
+    head_width=10,
+    head_length=15,
+    length_includes_head=True
+)
+
+plt.legend()
+plt.show()
+
+
