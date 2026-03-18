@@ -26,7 +26,7 @@ def Main(Current_Module, Image_Name):
 
     # Crop the image (static crop used in your original code)
     cropped_img = img.crop((400, 375, 1400, 1200))
-
+    #cropped_img.show()
     #Next Step: Filter the Image to enhance the Visible Sicion:
 
     cropped_img = cropped_img.convert("RGB")
@@ -61,7 +61,7 @@ def Main(Current_Module, Image_Name):
     new_image = Image.new("RGB", cropped_img.size)
     new_image.putdata(new_image_data)
 
-    #new_image.show()
+    new_image.show()
 
     def mask_generater(cropped_img, x_feedback, y_feedback):
 
@@ -187,6 +187,7 @@ def Main(Current_Module, Image_Name):
     
     print("Final X feedback:", x_feedback, "-->", round(x_feedback))
     print("Final Y feedback:", y_feedback, "-->", round(y_feedback))   
+    #and_img.show()
 
     width, height = cropped_img.size
     print("PCB Stepped hole caculated Center: (", width/2 + round(x_feedback), ",", height/2 + round(y_feedback), ")")
@@ -211,251 +212,259 @@ def Main(Current_Module, Image_Name):
 
         return filtered, count_white
 
-    # --- STRICT PASS ---
-    filtered_image_data, count_white = make_white_mask(cropped_img, brightness_limit=140)
-
-    if count_white == 0:
-        print("No white pixels with strict threshold — retrying with loose threshold")
-
-        # --- FALLBACK PASS ---
-        filtered_image_data, count_white = make_white_mask(cropped_img, brightness_limit=200)
+    brightness_thresholds = [140, 180, 220, 260, 300]
+    
+    for threshold in brightness_thresholds:
+        print(f"Trying brightness threshold: {threshold}")
+        # --- STRICT PASS ---
+        filtered_image_data, count_white = make_white_mask(cropped_img, threshold)
 
         if count_white == 0:
-            print("No white pixels even with loose threshold — skipping image")
+            print("No white pixels with strict threshold — retrying with loose threshold")
+
+            # --- FALLBACK PASS ---
+            filtered_image_data, count_white = make_white_mask(cropped_img, brightness_limit=200)
+
+            if count_white == 0:
+                print("No white pixels even with loose threshold — skipping image")
+                return None, None, None
+        
+        # After white mask is created:
+        filtered_new_image = Image.new("RGB", cropped_img.size)
+        filtered_new_image.putdata(filtered_image_data)
+
+        # Reset before building circled image
+        filtered_image_data = []
+
+        width, height = filtered_new_image.size
+        pixels = filtered_new_image.load()
+
+        center_x = width/2
+        center_y = height/2
+
+        sum_x = 0
+        sum_y = 0
+        count = 0
+
+        print("center_x:", center_x, "center_y:", center_y)
+
+        filtered_image_data = []
+
+        for y in range(height):
+            for x in range(width):
+                r, g, b = pixels[x, y]
+                R = ((x - center_x)**2 + (y - center_y)**2)**0.5
+
+                if R < 200 and r == 255 and g == 255 and b == 255:
+                    filtered_image_data.append((255, 255, 255))
+                    sum_x += x
+                    sum_y += y
+                    count += 1
+                else:
+                    filtered_image_data.append((0, 0, 0))
+
+        if count > 0:
+            center_of_mass_x = sum_x / count
+            center_of_mass_y = sum_y / count
+            print("Center of Mass:", center_of_mass_x, center_of_mass_y)
+        else:
             return None, None, None
-    
-    # After white mask is created:
-    filtered_new_image = Image.new("RGB", cropped_img.size)
-    filtered_new_image.putdata(filtered_image_data)
+            print("No white pixels found")
 
-    # Reset before building circled image
-    filtered_image_data = []
+        filtered_image_data = []
+        green_list = []
+        blue_list = []
 
-    width, height = filtered_new_image.size
-    pixels = filtered_new_image.load()
+        for y in range(height):
+            for x in range(width):
+                r, g, b = pixels[x, y]
+                R = ((x - center_of_mass_x)**2 + (y - center_of_mass_y)**2)**0.5
 
-    center_x = width/2
-    center_y = height/2
+                if 45 < R < 60 and r == 255 and g == 255 and b == 255:
+                    filtered_image_data.append((0, 255, 0))
+                    green_list.append((x, y))
+                elif 90 < R < 110 and r == 255 and g == 255 and b == 255:
+                    filtered_image_data.append((0, 0, 255)) 
+                    blue_list.append((x, y))
+                elif r == 255 and g == 255 and b == 255:
+                    filtered_image_data.append((255, 255, 255))
+                else:
+                    filtered_image_data.append((0, 0, 0))
 
-    sum_x = 0
-    sum_y = 0
-    count = 0
+        linear_Points_image = Image.new("RGB", cropped_img.size)
+        linear_Points_image.putdata(filtered_image_data)
 
-    print("center_x:", center_x, "center_y:", center_y)
+        #linear_Points_image.show()
 
-    filtered_image_data = []
+        Rad_Green = []
+        for point in green_list:
+            x, y = point
+            theta = np.arctan2(y - center_of_mass_y, x - center_of_mass_x)
+            distance = ((x - center_of_mass_x)**2 + (y - center_of_mass_y)**2)**0.5
+            Rad_Green.append((theta, distance))
 
-    for y in range(height):
-        for x in range(width):
-            r, g, b = pixels[x, y]
-            R = ((x - center_x)**2 + (y - center_y)**2)**0.5
+        Rad_Blue = []
+        for point in blue_list:
+            x, y = point
+            theta = np.arctan2(y - center_of_mass_y, x - center_of_mass_x)
+            distance = ((x - center_of_mass_x)**2 + (y - center_of_mass_y)**2)**0.5
+            Rad_Blue.append((theta, distance))  
 
-            if R < 200 and r == 255 and g == 255 and b == 255:
-                filtered_image_data.append((255, 255, 255))
-                sum_x += x
-                sum_y += y
-                count += 1
+        def sort_by_theta(points):
+            list_low_pi = []
+            list_mid_pi = []
+            list_high_pi = []
+
+            for theta, r in points:
+                # normalize angle to [0, 2π)
+                if theta < 0:
+                    theta += 2*np.pi
+
+                # Your old custom angular windows
+                if 0 <= theta < np.pi*(1/3):
+                    list_low_pi.append((theta, r))
+
+                elif np.pi*(1/3) <= theta < np.pi*(2/3):
+                    list_low_pi.append((theta, r))
+
+                elif np.pi*(2/3) <= theta < np.pi:
+                    list_mid_pi.append((theta, r))
+
+                elif np.pi*(9/8) <= theta < np.pi*(4/3):
+                    list_mid_pi.append((theta, r))
+
+                elif np.pi*(4/3) <= theta < np.pi*(5/3):
+                    list_high_pi.append((theta, r))
+
+                elif np.pi*(5/3) <= theta < np.pi*(17/8):
+                    list_high_pi.append((theta, r))
+
+            return list_low_pi, list_mid_pi, list_high_pi
+        low, mid, high = sort_by_theta(Rad_Blue)
+
+        def list_avg(points):
+            if len(points) == 0:
+                return None, None
+
+            sum_theta = 0
+            sum_r = 0
+
+            for theta, r in points:
+                sum_theta += theta
+                sum_r += r
+
+            return sum_theta / len(points), sum_r / len(points)
+
+        def list_to_point(points):
+            if len(points) == 0:
+                return None, None
+
+            sx = 0
+            sy = 0
+
+            for theta, r in points:
+                # Convert polar → Cartesian
+                x = center_of_mass_x + r * np.cos(theta)
+                y = center_of_mass_y + r * np.sin(theta)
+
+                sx += x
+                sy += y
+
+            return sx / len(points), sy / len(points)
+
+        lowTheta, lowR = list_avg(low)
+        midTheta, midR = list_avg(mid) 
+        highTheta, highR = list_avg(high)
+
+        def safe_polar_to_cart(center_x, center_y, R, Theta, label, img=None):
+            if R is None or Theta is None:
+                print(f"[WARN] Missing {label} point group — R or Theta is None")
+
+                return None, None
+
+            return (
+                center_x + R * np.cos(Theta),
+                center_y + R * np.sin(Theta)
+            )
+
+
+        G1_x, G1_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, lowR,  lowTheta,  "Green Low",  img)
+        G2_x, G2_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, midR,  midTheta,  "Green Mid",  img)
+        G3_x, G3_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, highR, highTheta, "Green High", img)
+
+        print("Green Centroids:")
+        print("G1:", G1_x, G1_y)   
+        print("G2:", G2_x, G2_y)
+        print("G3:", G3_x, G3_y)   
+
+
+        low, mid, high = sort_by_theta(Rad_Green)
+        lowTheta, lowR = list_avg(low)
+        midTheta, midR = list_avg(mid) 
+        highTheta, highR = list_avg(high)
+
+        B1_x, B1_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, lowR,  lowTheta,  "Blue Low",  img)
+        B2_x, B2_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, midR,  midTheta,  "Blue Mid",  img)
+        B3_x, B3_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, highR, highTheta, "Blue High", img)
+
+        print("Blue Centroids:")
+        print("B1:", B1_x, B1_y)
+        print("B2:", B2_x, B2_y)
+        print("B3:", B3_x, B3_y)
+
+        # Build list of valid lines
+        lines = []
+
+        if None not in (G1_x, G1_y, B1_x, B1_y):
+            lines.append(("L1", (G1_x, G1_y, B1_x, B1_y)))
+
+        if None not in (G2_x, G2_y, B2_x, B2_y):
+            lines.append(("L2", (G2_x, G2_y, B2_x, B2_y)))
+
+        if None not in (G3_x, G3_y, B3_x, B3_y):
+            lines.append(("L3", (G3_x, G3_y, B3_x, B3_y)))
+
+        # Need at least two lines
+        if len(lines) >= 2:
+            # Use the first two valid lines
+            (_, (Gx1, Gy1, Bx1, By1)) = lines[0]
+            (_, (Gx2, Gy2, Bx2, By2)) = lines[1]
+
+            # Compute slopes
+            m1 = (By1 - Gy1) / (Bx1 - Gx1)
+            m2 = (By2 - Gy2) / (Bx2 - Gx2)
+
+            # Compute intercepts
+            b1 = Gy1 - m1 * Gx1
+            b2 = Gy2 - m2 * Gx2
+
+            # Intersection
+            X = (b2 - b1) / (m1 - m2)
+            Y = m1 * X + b1
+
+            print("Vector From COM to Calculated Center: (", X - center_of_mass_x, ",", Y - center_of_mass_y, ")")
+            Vector_Magnitude = ((X - center_of_mass_x)**2 + (Y - center_of_mass_y)**2)**0.5
+            print("Magnitude of Vector:", Vector_Magnitude)
+
+            X_component = (X - center_of_mass_x)
+            Y_component = (Y - center_of_mass_y)
+
+
+
+            img = np.array(cropped_img)
+
+            
+
+            ys = [y for y in [G1_y, G2_y, G3_y, B1_y, B2_y, B3_y] if y is not None]
+
+            Cenroid_Count = len(ys)   ### LOOP HERE
+            if Cenroid_Count >= 6:
+                print("All 6 centroids found.")
+                break
             else:
-                filtered_image_data.append((0, 0, 0))
+                print(f"Only {Cenroid_Count} centroids found. Retrying with next brightness threshold...")
 
-    if count > 0:
-        center_of_mass_x = sum_x / count
-        center_of_mass_y = sum_y / count
-        print("Center of Mass:", center_of_mass_x, center_of_mass_y)
-    else:
-        return None, None, None
-        print("No white pixels found")
-
-    filtered_image_data = []
-    green_list = []
-    blue_list = []
-
-    for y in range(height):
-        for x in range(width):
-            r, g, b = pixels[x, y]
-            R = ((x - center_of_mass_x)**2 + (y - center_of_mass_y)**2)**0.5
-
-            if 45 < R < 60 and r == 255 and g == 255 and b == 255:
-                filtered_image_data.append((0, 255, 0))
-                green_list.append((x, y))
-            elif 90 < R < 110 and r == 255 and g == 255 and b == 255:
-                filtered_image_data.append((0, 0, 255)) 
-                blue_list.append((x, y))
-            elif r == 255 and g == 255 and b == 255:
-                filtered_image_data.append((255, 255, 255))
-            else:
-                filtered_image_data.append((0, 0, 0))
-
-    linear_Points_image = Image.new("RGB", cropped_img.size)
-    linear_Points_image.putdata(filtered_image_data)
-
-    linear_Points_image.show()
-
-    Rad_Green = []
-    for point in green_list:
-        x, y = point
-        theta = np.arctan2(y - center_of_mass_y, x - center_of_mass_x)
-        distance = ((x - center_of_mass_x)**2 + (y - center_of_mass_y)**2)**0.5
-        Rad_Green.append((theta, distance))
-
-    Rad_Blue = []
-    for point in blue_list:
-        x, y = point
-        theta = np.arctan2(y - center_of_mass_y, x - center_of_mass_x)
-        distance = ((x - center_of_mass_x)**2 + (y - center_of_mass_y)**2)**0.5
-        Rad_Blue.append((theta, distance))  
-
-    def sort_by_theta(points):
-        list_low_pi = []
-        list_mid_pi = []
-        list_high_pi = []
-
-        for theta, r in points:
-            # normalize angle to [0, 2π)
-            if theta < 0:
-                theta += 2*np.pi
-
-            # Your old custom angular windows
-            if 0 <= theta < np.pi*(1/3):
-                list_low_pi.append((theta, r))
-
-            elif np.pi*(1/3) <= theta < np.pi*(2/3):
-                list_low_pi.append((theta, r))
-
-            elif np.pi*(2/3) <= theta < np.pi:
-                list_mid_pi.append((theta, r))
-
-            elif np.pi*(9/8) <= theta < np.pi*(4/3):
-                list_mid_pi.append((theta, r))
-
-            elif np.pi*(4/3) <= theta < np.pi*(5/3):
-                list_high_pi.append((theta, r))
-
-            elif np.pi*(5/3) <= theta < np.pi*(17/8):
-                list_high_pi.append((theta, r))
-
-        return list_low_pi, list_mid_pi, list_high_pi
-    low, mid, high = sort_by_theta(Rad_Blue)
-
-    def list_avg(points):
-        if len(points) == 0:
-            return None, None
-
-        sum_theta = 0
-        sum_r = 0
-
-        for theta, r in points:
-            sum_theta += theta
-            sum_r += r
-
-        return sum_theta / len(points), sum_r / len(points)
-
-    def list_to_point(points):
-        if len(points) == 0:
-            return None, None
-
-        sx = 0
-        sy = 0
-
-        for theta, r in points:
-            # Convert polar → Cartesian
-            x = center_of_mass_x + r * np.cos(theta)
-            y = center_of_mass_y + r * np.sin(theta)
-
-            sx += x
-            sy += y
-
-        return sx / len(points), sy / len(points)
-
-    lowTheta, lowR = list_avg(low)
-    midTheta, midR = list_avg(mid) 
-    highTheta, highR = list_avg(high)
-
-    def safe_polar_to_cart(center_x, center_y, R, Theta, label, img=None):
-        if R is None or Theta is None:
-            print(f"[WARN] Missing {label} point group — R or Theta is None")
-
-            return None, None
-
-        return (
-            center_x + R * np.cos(Theta),
-            center_y + R * np.sin(Theta)
-        )
-
-
-    G1_x, G1_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, lowR,  lowTheta,  "Green Low",  img)
-    G2_x, G2_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, midR,  midTheta,  "Green Mid",  img)
-    G3_x, G3_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, highR, highTheta, "Green High", img)
-
-    print("Green Centroids:")
-    print("G1:", G1_x, G1_y)   
-    print("G2:", G2_x, G2_y)
-    print("G3:", G3_x, G3_y)   
-
-
-    low, mid, high = sort_by_theta(Rad_Green)
-    lowTheta, lowR = list_avg(low)
-    midTheta, midR = list_avg(mid) 
-    highTheta, highR = list_avg(high)
-
-    B1_x, B1_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, lowR,  lowTheta,  "Blue Low",  img)
-    B2_x, B2_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, midR,  midTheta,  "Blue Mid",  img)
-    B3_x, B3_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, highR, highTheta, "Blue High", img)
-
-    print("Blue Centroids:")
-    print("B1:", B1_x, B1_y)
-    print("B2:", B2_x, B2_y)
-    print("B3:", B3_x, B3_y)
-
-    # Build list of valid lines
-    lines = []
-
-    if None not in (G1_x, G1_y, B1_x, B1_y):
-        lines.append(("L1", (G1_x, G1_y, B1_x, B1_y)))
-
-    if None not in (G2_x, G2_y, B2_x, B2_y):
-        lines.append(("L2", (G2_x, G2_y, B2_x, B2_y)))
-
-    if None not in (G3_x, G3_y, B3_x, B3_y):
-        lines.append(("L3", (G3_x, G3_y, B3_x, B3_y)))
-
-    # Need at least two lines
-    if len(lines) < 2:
-        print("[SKIP] Not enough valid lines to compute intersection.")
-        return None, None, None
-
-    # Use the first two valid lines
-    (_, (Gx1, Gy1, Bx1, By1)) = lines[0]
-    (_, (Gx2, Gy2, Bx2, By2)) = lines[1]
-
-    # Compute slopes
-    m1 = (By1 - Gy1) / (Bx1 - Gx1)
-    m2 = (By2 - Gy2) / (Bx2 - Gx2)
-
-    # Compute intercepts
-    b1 = Gy1 - m1 * Gx1
-    b2 = Gy2 - m2 * Gx2
-
-    # Intersection
-    X = (b2 - b1) / (m1 - m2)
-    Y = m1 * X + b1
-
-    print("Vector From COM to Calculated Center: (", X - center_of_mass_x, ",", Y - center_of_mass_y, ")")
-    Vector_Magnitude = ((X - center_of_mass_x)**2 + (Y - center_of_mass_y)**2)**0.5
-    print("Magnitude of Vector:", Vector_Magnitude)
-
-    X_component = (X - center_of_mass_x)
-    Y_component = (Y - center_of_mass_y)
-
-
-
-    img = np.array(cropped_img)
-
-    
-
-    ys = [y for y in [G1_y, G2_y, G3_y, B1_y, B2_y, B3_y] if y is not None]
-
-    if len(ys) == 0:
+    if len(ys) == 0 or ys == [None, None, None, None, None, None]:
         print("[WARN] No valid centroids found.")
         return None, None, None
 
@@ -529,7 +538,7 @@ def Main(Current_Module, Image_Name):
         )
 
         plt.legend()
-        plt.show()
+        #plt.show()
         
 
 
