@@ -1,0 +1,30 @@
+Labeling Rules (Draft)
+Missing Bond
+- Pad is empty
+- No wire present
+- No bond foot visible
+Lifted Bond Foot
+- Wire is present
+- Foot is detached or partially lifted
+- Pad contact is broken
+Disfigured Bond
+- Wire is present
+- Bond is malformed (bent, twisted, collapsed, wrong loop height)
+- Foot is attached
+Debris
+- Any foreign object
+- Dust, particles, solder balls, contamination
+Tape in Stepped Hole
+- Any tape visible inside or covering the alignment hole
+None
+- No defects present
+- All bonds clean and properly formed
+
+http://localhost:8080/projects/1/data
+
+missing_bond
+lifted_bond_foot
+disfigured_bond
+debris
+tape_in_hole
+none

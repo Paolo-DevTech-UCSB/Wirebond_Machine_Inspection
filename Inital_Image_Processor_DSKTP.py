@@ -17,7 +17,12 @@ def Main(Current_Module, Image_Name):
     img_path = os.path.join(RAW_DIR, Current_Module, Image_Name)
 
     # Load the image
-    img = Image.open(img_path)
+    try:
+        img = Image.open(img_path)
+        img.load()  # Force loading the image to catch any issues early
+    except Exception as e:
+        print(f"[SKIP] Cannot open image {img_path}: {e}")
+        return None
 
     # Crop the image (static crop used in your original code)
     cropped_img = img.crop((400, 375, 1400, 1200))
@@ -190,28 +195,42 @@ def Main(Current_Module, Image_Name):
     ##### This next section needs to find the location of the mercedes symbol,
     ##### Filtering Everything But Silicon Black will be the first step, 
 
-    d = cropped_img.getdata()
-    filtered_image_data = []
-    for item in d:
-        width, height = cropped_img.size
-        r, g, b = item
-        brightness = r + g + b
+    def make_white_mask(cropped_img, brightness_limit):
+        d = cropped_img.getdata()
+        filtered = []
+        count_white = 0
 
-        # Default output is the original pixel
-        out = item
+        for (r, g, b) in d:
+            brightness = r + g + b
 
-        # Brightness filter
-        if brightness < 140:
-            out = (255, 255, 255)
+            if brightness < brightness_limit:
+                filtered.append((255, 255, 255))
+                count_white += 1
+            else:
+                filtered.append((0, 0, 0))
 
-        else: out = (0, 0, 0)
-        filtered_image_data.append(out)
+        return filtered, count_white
 
-    # reconstruction:
+    # --- STRICT PASS ---
+    filtered_image_data, count_white = make_white_mask(cropped_img, brightness_limit=140)
+
+    if count_white == 0:
+        print("No white pixels with strict threshold — retrying with loose threshold")
+
+        # --- FALLBACK PASS ---
+        filtered_image_data, count_white = make_white_mask(cropped_img, brightness_limit=200)
+
+        if count_white == 0:
+            print("No white pixels even with loose threshold — skipping image")
+            return None, None, None
+    
+    # After white mask is created:
     filtered_new_image = Image.new("RGB", cropped_img.size)
     filtered_new_image.putdata(filtered_image_data)
 
+    # Reset before building circled image
     filtered_image_data = []
+
     width, height = filtered_new_image.size
     pixels = filtered_new_image.load()
 
@@ -223,6 +242,8 @@ def Main(Current_Module, Image_Name):
     count = 0
 
     print("center_x:", center_x, "center_y:", center_y)
+
+    filtered_image_data = []
 
     for y in range(height):
         for x in range(width):
@@ -242,18 +263,10 @@ def Main(Current_Module, Image_Name):
         center_of_mass_y = sum_y / count
         print("Center of Mass:", center_of_mass_x, center_of_mass_y)
     else:
+        return None, None, None
         print("No white pixels found")
 
-
-    circled_new_image = Image.new("RGB", cropped_img.size)
-    circled_new_image.putdata(filtered_image_data)
-
-    #circled_new_image.show()
-
     filtered_image_data = []
-    width, height = filtered_new_image.size
-    pixels = filtered_new_image.load()
-
     green_list = []
     blue_list = []
 
@@ -262,10 +275,10 @@ def Main(Current_Module, Image_Name):
             r, g, b = pixels[x, y]
             R = ((x - center_of_mass_x)**2 + (y - center_of_mass_y)**2)**0.5
 
-            if 50 < R < 75 and r == 255 and g == 255 and b == 255:
+            if 45 < R < 60 and r == 255 and g == 255 and b == 255:
                 filtered_image_data.append((0, 255, 0))
                 green_list.append((x, y))
-            elif 150 < R < 175 and r == 255 and g == 255 and b == 255:
+            elif 90 < R < 110 and r == 255 and g == 255 and b == 255:
                 filtered_image_data.append((0, 0, 255)) 
                 blue_list.append((x, y))
             elif r == 255 and g == 255 and b == 255:
@@ -276,7 +289,7 @@ def Main(Current_Module, Image_Name):
     linear_Points_image = Image.new("RGB", cropped_img.size)
     linear_Points_image.putdata(filtered_image_data)
 
-    #linear_Points_image.show()
+    linear_Points_image.show()
 
     Rad_Green = []
     for point in green_list:
@@ -358,12 +371,21 @@ def Main(Current_Module, Image_Name):
     midTheta, midR = list_avg(mid) 
     highTheta, highR = list_avg(high)
 
-    G1_x = center_of_mass_x + lowR * np.cos(lowTheta)
-    G1_y = center_of_mass_y + lowR * np.sin(lowTheta)   
-    G2_x = center_of_mass_x + midR * np.cos(midTheta)
-    G2_y = center_of_mass_y + midR * np.sin(midTheta)   
-    G3_x = center_of_mass_x + highR * np.cos(highTheta)
-    G3_y = center_of_mass_y + highR * np.sin(highTheta) 
+    def safe_polar_to_cart(center_x, center_y, R, Theta, label, img=None):
+        if R is None or Theta is None:
+            print(f"[WARN] Missing {label} point group — R or Theta is None")
+
+            return None, None
+
+        return (
+            center_x + R * np.cos(Theta),
+            center_y + R * np.sin(Theta)
+        )
+
+
+    G1_x, G1_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, lowR,  lowTheta,  "Green Low",  img)
+    G2_x, G2_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, midR,  midTheta,  "Green Mid",  img)
+    G3_x, G3_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, highR, highTheta, "Green High", img)
 
     print("Green Centroids:")
     print("G1:", G1_x, G1_y)   
@@ -376,28 +398,45 @@ def Main(Current_Module, Image_Name):
     midTheta, midR = list_avg(mid) 
     highTheta, highR = list_avg(high)
 
-    B1_x = center_of_mass_x + lowR * np.cos(lowTheta)
-    B1_y = center_of_mass_y + lowR * np.sin(lowTheta)   
-    B2_x = center_of_mass_x + midR * np.cos(midTheta)
-    B2_y = center_of_mass_y + midR * np.sin(midTheta)   
-    B3_x = center_of_mass_x + highR * np.cos(highTheta)
-    B3_y = center_of_mass_y + highR * np.sin(highTheta) 
+    B1_x, B1_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, lowR,  lowTheta,  "Blue Low",  img)
+    B2_x, B2_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, midR,  midTheta,  "Blue Mid",  img)
+    B3_x, B3_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, highR, highTheta, "Blue High", img)
 
     print("Blue Centroids:")
     print("B1:", B1_x, B1_y)
     print("B2:", B2_x, B2_y)
     print("B3:", B3_x, B3_y)
 
-    ##y = mx + b
-    m1 = (B1_y - G1_y) / (B1_x - G1_x)
-    m2 = (B2_y - G2_y) / (B2_x - G2_x)
-    m3 = (B3_y - G3_y) / (B3_x - G3_x)
+    # Build list of valid lines
+    lines = []
 
-    b1 = (m1 * G1_x)*-1  + G1_y
-    b2 = (m2 * G2_x)*-1  + G2_y
-    b3 = (m3 * G3_x)*-1  + G3_y
+    if None not in (G1_x, G1_y, B1_x, B1_y):
+        lines.append(("L1", (G1_x, G1_y, B1_x, B1_y)))
 
-    # intersection of line 1 and 2
+    if None not in (G2_x, G2_y, B2_x, B2_y):
+        lines.append(("L2", (G2_x, G2_y, B2_x, B2_y)))
+
+    if None not in (G3_x, G3_y, B3_x, B3_y):
+        lines.append(("L3", (G3_x, G3_y, B3_x, B3_y)))
+
+    # Need at least two lines
+    if len(lines) < 2:
+        print("[SKIP] Not enough valid lines to compute intersection.")
+        return None, None, None
+
+    # Use the first two valid lines
+    (_, (Gx1, Gy1, Bx1, By1)) = lines[0]
+    (_, (Gx2, Gy2, Bx2, By2)) = lines[1]
+
+    # Compute slopes
+    m1 = (By1 - Gy1) / (Bx1 - Gx1)
+    m2 = (By2 - Gy2) / (Bx2 - Gx2)
+
+    # Compute intercepts
+    b1 = Gy1 - m1 * Gx1
+    b2 = Gy2 - m2 * Gx2
+
+    # Intersection
     X = (b2 - b1) / (m1 - m2)
     Y = m1 * X + b1
 
@@ -412,54 +451,17 @@ def Main(Current_Module, Image_Name):
 
     img = np.array(cropped_img)
 
-    plt.figure(figsize=(8, 8))
-    #plt.imshow(img)
-    plt.title("Mercedes Geometry Overlay")
-    plt.axis('off')
+    
 
-    # --- plot centroids ---
-    plt.scatter([G1_x, G2_x, G3_x], [G1_y, G2_y, G3_y],
-                color='lime', s=80, label='Green centroids')
-    plt.scatter([B1_x, B2_x, B3_x], [B1_y, B2_y, B3_y],
-                color='cyan', s=80, label='Blue centroids')
+    ys = [y for y in [G1_y, G2_y, G3_y, B1_y, B2_y, B3_y] if y is not None]
 
-    # --- plot COM ---
-    plt.scatter([center_of_mass_x], [center_of_mass_y],
-                color='orange', s=120, marker='x', label='Rough COM')
+    if len(ys) == 0:
+        print("[WARN] No valid centroids found.")
+        return None, None, None
 
-    # --- plot intersection ---
-    plt.scatter([X], [Y],
-                color='red', s=150, marker='*', label='Calculated center')
-
-    # --- draw lines ---
-    def draw_line(m, b, color):
-        xs = np.array([0, img.shape[1]])
-        ys = m * xs + b
-        plt.plot(xs, ys, color=color, linewidth=2)
-
-    draw_line(m1, b1, 'magenta')
-    draw_line(m2, b2, 'yellow')
-    draw_line(m3, b3, 'white')
-
-    # --- draw vector from COM → Calculated Center ---
-    plt.arrow(
-        center_of_mass_x, center_of_mass_y,
-        X - center_of_mass_x, Y - center_of_mass_y,
-        color='red',
-        width=1.0,
-        head_width=10,
-        head_length=15,
-        length_includes_head=True
-    )
-
-    plt.legend()
-    #plt.show()
-
-    # Collect all Y‑values from your six centroids
-    ys = [G1_y, G2_y, G3_y, B1_y, B2_y, B3_y]
-
-    # Compute the middle (average Y)
     middle = sum(ys) / len(ys)
+    above_count = sum(1 for y in ys if y < middle)
+    more_above = above_count > len(ys) / 2
 
     # Count how many are above the middle (smaller Y = higher in image coordinates)
     above_count = sum(1 for y in ys if y < middle)
@@ -470,6 +472,65 @@ def Main(Current_Module, Image_Name):
     print("Middle Y:", middle)
     print("Centroids above middle:", above_count)
     print("More above than below:", more_above)
+
+    if len(ys) < 5:
+        print("[WARN] Only", len(ys), "centroid pixels found. Results may be unreliable.")
+        plt.figure(figsize=(8, 8))
+        #plt.imshow(img)
+        plt.title("Mercedes Geometry Overlay")
+        plt.axis('off')
+
+        # --- plot centroids ---
+        # --- plot centroids safely ---
+        green_x = [x for x in [G1_x, G2_x, G3_x] if x is not None]
+        green_y = [y for y in [G1_y, G2_y, G3_y] if y is not None]
+
+        blue_x  = [x for x in [B1_x, B2_x, B3_x] if x is not None]
+        blue_y  = [y for y in [B1_y, B2_y, B3_y] if y is not None]
+
+        plt.scatter(green_x, green_y, color='lime', s=80, label='Green centroids')
+        plt.scatter(blue_x,  blue_y,  color='cyan', s=80, label='Blue centroids')
+
+        # --- plot COM ---
+        plt.scatter([center_of_mass_x], [center_of_mass_y],
+                    color='orange', s=120, marker='x', label='Rough COM')
+
+        # --- plot intersection ---
+        plt.scatter([X], [Y],
+                    color='red', s=150, marker='*', label='Calculated center')
+
+        # --- draw lines ---
+        def draw_line(m, b, color):
+            xs = np.array([0, img.shape[1]])
+            ys = m * xs + b
+            plt.plot(xs, ys, color=color, linewidth=2)
+
+        # Draw only the lines that exist
+        for name, (Gx, Gy, Bx, By) in lines:
+            m = (By - Gy) / (Bx - Gx)
+            b = Gy - m * Gx
+
+            if name == "L1":
+                draw_line(m, b, 'magenta')
+            elif name == "L2":
+                draw_line(m, b, 'yellow')
+            elif name == "L3":
+                draw_line(m, b, 'white')
+
+        # --- draw vector from COM → Calculated Center ---
+        plt.arrow(
+            center_of_mass_x, center_of_mass_y,
+            X - center_of_mass_x, Y - center_of_mass_y,
+            color='red',
+            width=1.0,
+            head_width=10,
+            head_length=15,
+            length_includes_head=True
+        )
+
+        plt.legend()
+        plt.show()
+        
 
 
 

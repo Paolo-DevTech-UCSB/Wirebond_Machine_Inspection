@@ -4,7 +4,7 @@ import os
 USER = "Admin"
 
 # Base folder on your Desktop where all PCB data lives
-DATA_ROOT = fr"C:\Users\{USER}\Desktop\Wirebond Inspector"
+DATA_ROOT = fr"C:\Users\{USER}\Desktop\Wirebond_Inspector"
 
 # Subfolders inside PCB_Data
 RAW_DIR = os.path.join(DATA_ROOT, "Raw Photos")

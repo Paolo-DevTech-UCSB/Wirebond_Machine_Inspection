@@ -7,13 +7,26 @@ def Main(Current_Module, Image_Name):
 
     # Load raw image
     img_path = os.path.join(RAW_DIR, Current_Module, Image_Name)
-    img = Image.open(img_path)
+    try:
+        img = Image.open(img_path)
+        img.load()
+    except Exception as e:
+        print(f"[SKIP] Cannot open image {img_path}: {e}")
+        return None
 
     # Get offsets + flip flag
-    PCBX, PCBY, more_above = IIP.Main(Current_Module, Image_Name)
+    result = IIP.Main(Current_Module, Image_Name)
+
+    # If IIP failed, skip this image
+    if result == (None, None, None):
+        print(f"[SKIP] Could not process {Image_Name} in {Current_Module}")
+        return None
+
+    PCBX, PCBY, more_above = result
 
     # Crop
-    cropped_img = img.crop((400 + PCBX, 375 + PCBY, 1400 + PCBX, 1200 + PCBY))
+    cropped_img = img.crop((400 + PCBX, 375 + PCBY,
+                            1400 + PCBX, 1200 + PCBY))
 
     # Flip if needed
     if more_above:
