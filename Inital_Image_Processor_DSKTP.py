@@ -1,4 +1,4 @@
-from PIL import Image
+from PIL import Image, ImageDraw
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -34,6 +34,137 @@ def Main(Current_Module, Image_Name):
 
     new_image_data = []
 
+    W, H = cropped_img.size
+
+    def compute_com_from_mask(mask, W, H):
+        sum_x = 0
+        sum_y = 0
+        count = 0
+
+        idx = 0
+        for y in range(H):
+            for x in range(W):
+                r, g, b = mask[idx]
+                if r > 200 and g > 200 and b > 200:   # white pixel
+                    sum_x += x
+                    sum_y += y
+                    count += 1
+                idx += 1
+
+        if count == 0:
+            return None, None
+
+        return sum_x / count, sum_y / count
+    
+    def is_sensor_color(r, g, b):
+        return (60 <= r <= 170) and (110 <= g <= 220) and (140 <= b <= 255)
+
+
+
+
+
+
+
+    # ---------------------------------------------------------
+    # 1. CAL-DOT FILTERING + DEBUG MASK
+    # ---------------------------------------------------------
+    black_count = 0
+    caldot_mask = []
+    Hole_Type = "Default"
+
+    for (r, g, b) in d:
+        is_black = (r < 40 and g < 40 and b < 40)
+        is_sensor = is_sensor_color(r, g, b)
+
+        # COM mask includes black OR sensor
+        if is_black or is_sensor:
+            caldot_mask.append((255, 255, 255))
+        else:
+            caldot_mask.append((0, 0, 0))
+
+        # Detection only counts black
+        if is_black:
+            black_count += 1
+
+    black_count_THRESHOLD = round(47040 * 0.8)
+
+    if black_count > black_count_THRESHOLD:
+        print("Cal-dot detected — showing mask and cropped image...")
+
+        # Build mask image
+        mask_img = Image.new("RGB", (W, H))
+        mask_img.putdata(caldot_mask)
+
+        # --- Compute COM of cal-dot mask ---
+        com_x, com_y = compute_com_from_mask(caldot_mask, W, H)
+        if com_x is not None:
+            print("Cal-dot COM:", com_x, com_y)
+            draw = ImageDraw.Draw(mask_img)
+            r = 8
+            draw.ellipse((com_x-r, com_y-r, com_x+r, com_y+r), fill=(255,0,0))
+
+        mask_img.show()
+        cropped_img.show()
+        Hole_Type = "Cal-dot"
+    else:
+        print("No cal-dot detected")
+
+
+    # ---------------------------------------------------------
+    # 2. GUARD-RING FILTERING + DEBUG MASK
+    # ---------------------------------------------------------
+    gold_count = 0
+    guard_mask = []
+
+    for (r, g, b) in d:
+        is_gold = (210 <= r <= 255 and 225 <= g <= 260 and 175 <= b <= 220)
+        is_sensor = is_sensor_color(r, g, b)
+
+        # COM mask includes gold OR sensor
+        if is_gold or is_sensor:
+            guard_mask.append((255, 255, 255))
+        else:
+            guard_mask.append((0, 0, 0))
+
+        # Detection only counts gold
+        if is_gold:
+            gold_count += 1
+
+    GUARD_RING_THRESHOLD = round(50265 * 0.5)
+
+    if gold_count > GUARD_RING_THRESHOLD:
+        print("Guard-ring detected — showing mask and cropped image...")
+
+        mask_img = Image.new("RGB", (W, H))
+        mask_img.putdata(guard_mask)
+
+        # --- Compute COM of guard-ring mask ---
+        com_x2, com_y2 = compute_com_from_mask(guard_mask, W, H)
+        if com_x2 is not None:
+            print("Guard-ring COM:", com_x2, com_y2)
+            draw = ImageDraw.Draw(mask_img)
+            r = 8
+            draw.ellipse((com_x2-r, com_y2-r, com_x2+r, com_y2+r), fill=(255,0,0))
+
+        mask_img.show()
+        cropped_img.show()
+        Hole_Type = "Guard-ring"
+    else:
+        print("No guard-ring detected")
+
+
+    # PLEASE FIXED SECTION
+    if Hole_Type == "Cal-dot":
+        x_offset = com_x - (W / 2)
+        y_offset = com_y - (H / 2)
+        return round(x_offset), round(y_offset), 0
+
+    elif Hole_Type == "Guard-ring":
+        x_offset = com_x2 - (W / 2)
+        y_offset = com_y2 - (H / 2)
+        return round(x_offset), round(y_offset), 1
+
+
     for item in d:
 
         r, g, b = item
@@ -61,8 +192,9 @@ def Main(Current_Module, Image_Name):
     new_image = Image.new("RGB", cropped_img.size)
     new_image.putdata(new_image_data)
 
-    new_image.show()
+    #new_image.show()
 
+    
     def mask_generater(cropped_img, x_feedback, y_feedback):
 
         sized_mask_data = []
@@ -148,6 +280,39 @@ def Main(Current_Module, Image_Name):
                         right_weight += val
             return top_weight, bottom_weight, left_weight, right_weight
 
+
+    # --- compute center of mass of white pixels ---
+    w, h = new_image.size
+    pix = new_image.load()
+
+    sum_x = 0
+    sum_y = 0
+    count = 0
+
+    for y in range(h):
+        for x in range(w):
+            r, g, b = pix[x, y]
+            if r > 200 and g > 200 and b > 200:
+                sum_x += x
+                sum_y += y
+                count += 1
+
+    if count > 0:
+        com_x = sum_x / count
+        com_y = sum_y / count
+
+        print("Center of Mass (RED):", com_x, com_y)
+
+        draw = ImageDraw.Draw(new_image)
+        r = 8
+        draw.ellipse((com_x-r, com_y-r, com_x+r, com_y+r), fill=(255,0,0))
+
+        #new_image.show()
+    else:
+        print("No white pixels found; COM undefined.")
+
+
+
     x_feedback = 0
     y_feedback = 0
     strength = 5000  # Adjust this value to control how much the feedback influences the mask size. Higher means less influence.
@@ -192,6 +357,17 @@ def Main(Current_Module, Image_Name):
     width, height = cropped_img.size
     print("PCB Stepped hole caculated Center: (", width/2 + round(x_feedback), ",", height/2 + round(y_feedback), ")")
 
+    cx = width/2 + round(x_feedback)
+    cy = height/2 + round(y_feedback)
+    draw = ImageDraw.Draw(new_image)
+
+    r = 4  # radius of the dot
+    draw.ellipse(
+        (cx - r, cy - r, cx + r, cy + r),
+        fill=(0, 255, 0)
+    )
+
+    #new_image.show()
 
     ##### This next section needs to find the location of the mercedes symbol,
     ##### Filtering Everything But Silicon Black will be the first step, 

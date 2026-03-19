@@ -90,7 +90,8 @@ def get_modules_with_unprocessed():
 
 for module in get_modules_with_unprocessed():
     unprocessed = get_unprocessed_images(module)
-
+    
     for img in unprocessed:
+        #print(input(f"Processing module {module} with {len(unprocessed)} unprocessed images. Press Enter to continue..."))
         processed_img = Main(module, img)      # <-- PROCESS
 
