@@ -36,76 +36,6 @@ def Main(Current_Module, Image_Name):
 
     W, H = cropped_img.size
 
-    # -------------------------------------------------------------
-    # 1. Compute COM of sensor-color pixels in the initial crop
-    # -------------------------------------------------------------
-
-    def is_sensor_color(r, g, b):
-        return (60 <= r <= 170) and (110 <= g <= 220) and (140 <= b <= 255)
-
-    def compute_sensor_com(img):
-        W, H = img.size
-        pix = img.load()
-
-        sum_x = 0
-        sum_y = 0
-        count = 0
-
-        for y in range(H):
-            for x in range(W):
-                r, g, b = pix[x, y]
-                if is_sensor_color(r, g, b):
-                    sum_x += x
-                    sum_y += y
-                    count += 1
-
-        if count == 0:
-            return None, None
-
-        return sum_x / count, sum_y / count
-
-    # Compute COM on the initial crop
-    com_x, com_y = compute_sensor_com(cropped_img)
-
-    # -------------------------------------------------------------
-    # 2. If COM exists and is far from center → recrop the image
-    # -------------------------------------------------------------
-    if com_x is not None:
-        dx = com_x - (W / 2)
-        dy = com_y - (H / 2)
-
-        # Threshold: how far off-center before we recrop
-        RECENTER_THRESHOLD = 40
-
-        if abs(dx) > RECENTER_THRESHOLD or abs(dy) > RECENTER_THRESHOLD:
-            print(f"[REALIGN] Sensor COM offset detected: dx={dx:.1f}, dy={dy:.1f}")
-
-            # Compute new crop window in the original full image
-            new_x1 = int(400 + dx)
-            new_y1 = int(375 + dy)
-            new_x2 = new_x1 + W
-            new_y2 = new_y1 + H
-
-            # Clamp to image boundaries
-            new_x1 = max(0, new_x1)
-            new_y1 = max(0, new_y1)
-            new_x2 = min(img.width, new_x2)
-            new_y2 = min(img.height, new_y2)
-
-            # Re-crop
-            cropped_img = img.crop((new_x1, new_y1, new_x2, new_y2))
-            cropped_img = cropped_img.convert("RGB")
-
-            print("[REALIGN] Crop window adjusted and recropped.")
-        else:
-            print("[REALIGN] COM close enough — no recrop needed.")
-    else:
-        print("[REALIGN] No sensor-color pixels found — skipping recrop.")
-
-    W, H = cropped_img.size
-    d = cropped_img.getdata()
-    new_image_data = []
-
     def compute_com_from_mask(mask, W, H):
         sum_x = 0
         sum_y = 0
@@ -126,6 +56,14 @@ def Main(Current_Module, Image_Name):
 
         return sum_x / count, sum_y / count
     
+    def is_sensor_color(r, g, b):
+        return (60 <= r <= 170) and (110 <= g <= 220) and (140 <= b <= 255)
+
+
+
+
+
+
 
     # ---------------------------------------------------------
     # 1. CAL-DOT FILTERING + DEBUG MASK
@@ -160,7 +98,7 @@ def Main(Current_Module, Image_Name):
         # --- Compute COM of cal-dot mask ---
         com_x, com_y = compute_com_from_mask(caldot_mask, W, H)
         if com_x is not None:
-            #print("Cal-dot COM:", com_x, com_y)
+            print("Cal-dot COM:", com_x, com_y)
             draw = ImageDraw.Draw(mask_img)
             r = 8
             draw.ellipse((com_x-r, com_y-r, com_x+r, com_y+r), fill=(255,0,0))
@@ -169,9 +107,7 @@ def Main(Current_Module, Image_Name):
         #cropped_img.show()
         Hole_Type = "Cal-dot"
     else:
-        caldot = 0 #placeholder line
-        #print("No cal-dot detected")
-
+        print("No cal-dot detected")
 
 
     # ---------------------------------------------------------
@@ -197,7 +133,7 @@ def Main(Current_Module, Image_Name):
     GUARD_RING_THRESHOLD = round(502650 * 0.4)
 
     if gold_count > GUARD_RING_THRESHOLD:
-        #print("Guard-ring detected — showing mask and cropped image...")
+        print("Guard-ring detected — showing mask and cropped image...")
 
         mask_img = Image.new("RGB", (W, H))
         mask_img.putdata(guard_mask)
@@ -214,22 +150,25 @@ def Main(Current_Module, Image_Name):
         #cropped_img.show()
         Hole_Type = "Guard-ring"
     else:
-        #print(gold_count, "gold pixels detected must be above threshold of", GUARD_RING_THRESHOLD)
-        #print("No guard-ring detected")
-        gaurd = 1 #placeholder line
+        print(gold_count, "gold pixels detected must be above threshold of", GUARD_RING_THRESHOLD)
+        print("No guard-ring detected")
 
-
-    # PLEASE FIXED SECTION
     if Hole_Type == "Cal-dot":
         x_offset = com_x - (W / 2)
         y_offset = com_y - (H / 2)
+        print("Cal-dot detected — returning Sensor and Black COM offset as PCB center")
         return round(x_offset), round(y_offset), 0, Hole_Type
 
     elif Hole_Type == "Guard-ring":
         x_offset = com_x2 - (W / 2)
         y_offset = com_y2 - (H / 2)
+        print("Guard-ring detected — returning gold and sensor COM offset as PCB center")
         return round(x_offset), round(y_offset), 1, Hole_Type
          
+
+
+    #START MASK AND FILTER
+
 
     for item in d:
 
@@ -260,96 +199,11 @@ def Main(Current_Module, Image_Name):
 
     #new_image.show()
 
-    
-    def mask_generater(cropped_img, x_feedback, y_feedback):
-
-        sized_mask_data = []
-        width, height = cropped_img.size
-        pixels = cropped_img.load()
-
-        center_x = width/2 + round(x_feedback)
-        center_y = height/2 + round(y_feedback)
-
-        #print("center_x:", center_x, "center_y:", center_y)
-
-        for y in range(height):
-            for x in range(width):
-                r, g, b = pixels[x, y]
-                R = ((x - center_x)**2 + (y - center_y)**2)**0.5
-
-                if 725 < R*2 < 800:
-                    sized_mask_data.append((255, 0, 0))
-                else:
-                    sized_mask_data.append((0, 0, 0))
-
-        sized_mask = Image.new("RGB", cropped_img.size)
-        sized_mask.putdata(sized_mask_data)
-        return sized_mask
-
-    def is_one(pixel):
-        r, g, b = pixel
-        # white = 1
-        if r == 255 and g == 255 and b == 255:
-            return True
-        # red = 1
-        if r == 255 and g == 0 and b == 0:
-            return True
-        return False
-
-    def AND_mask(Black_White_Image, Mask_Image):
-        w, h = Mask_Image.size
-        pixA = Black_White_Image.load()
-        pixB = Mask_Image.load()
-
-        and_pixels = []
-
-        for y in range(h):
-            for x in range(w):
-                a = is_one(pixA[x, y])
-                b = is_one(pixB[x, y])
-
-                if a and b:
-                    and_pixels.append((255, 255, 255))   # 1 → white
-                else:
-                    and_pixels.append((0, 0, 0))         # 0 → black
-
-        and_img = Image.new("RGB", (w, h))
-        and_img.putdata(and_pixels)
-        return and_img
-
-    def weight_distribution(and_img):
-            w, h = and_img.size
-            pix = and_img.load()
-
-            top_weight = 0
-            bottom_weight = 0
-            left_weight = 0
-            right_weight = 0
-
-            for y in range(h):
-                for x in range(w):
-                    r, g, b = pix[x, y]
-
-                    # white or red = 1, black = 0
-                    val = 1 if (r > 200 and g > 200 and b > 200) or (r > 200 and g < 80 and b < 80) else 0
-
-                    # vertical split
-                    if y < h // 2:
-                        top_weight += val
-                    else:
-                        bottom_weight += val
-
-                    # horizontal split
-                    if x < w // 2:
-                        left_weight += val
-                    else:
-                        right_weight += val
-            return top_weight, bottom_weight, left_weight, right_weight
-
-
-    # --- compute center of mass of white pixels ---
-    w, h = new_image.size
-    pix = new_image.load()
+    # --- compute center of mass of SENSOR COLOR pixels ---
+    #w, h = new_image.size
+    #pix = new_image.load()
+    w, h = cropped_img.size
+    pix = cropped_img.load()
 
     sum_x = 0
     sum_y = 0
@@ -358,7 +212,8 @@ def Main(Current_Module, Image_Name):
     for y in range(h):
         for x in range(w):
             r, g, b = pix[x, y]
-            if r > 200 and g > 200 and b > 200:
+
+            if is_sensor_color(r, g, b):
                 sum_x += x
                 sum_y += y
                 count += 1
@@ -367,56 +222,20 @@ def Main(Current_Module, Image_Name):
         com_x = sum_x / count
         com_y = sum_y / count
 
-        #print("Center of Mass (RED):", com_x, com_y)
+        #print("Center of Mass (Sensor Color):", com_x, com_y)
 
         draw = ImageDraw.Draw(new_image)
         r = 8
         draw.ellipse((com_x-r, com_y-r, com_x+r, com_y+r), fill=(255,0,0))
+    else:
+        print("No sensor-color pixels found; COM undefined.")
+        new_image.show()
+        return 0, 0, 0, Hole_Type   # or whatever your function normally returns
 
-        #new_image.show()
+    #OLD FEEDBACK LOOP WAS HERE
 
-
-
-    x_feedback = 0
-    y_feedback = 0
-    strength = 5000  # Adjust this value to control how much the feedback influences the mask size. Higher means less influence.
-    tol = 750  # or 800 if you want to be looser
-    for iteration in range(10):
-        # Next Step: Apply a Ring shped Mask, use weight to increase the precision of mask. 
-        #print("X feedback:", x_feedback, int(x_feedback))
-        #print("Y feedback:", y_feedback, int(y_feedback))
-        sized_mask = mask_generater(cropped_img, x_feedback=x_feedback, y_feedback=y_feedback)
-
-        # AND GATE IMAGE, when image 1 is red, and image 2 is white, the output is white, otherwise black.
-        and_img = AND_mask(new_image, sized_mask) 
-        #and_img.show()
-
-        # Measure weight distribution in the AND image
-        weights = weight_distribution(and_img)
-
-        #print("Top weight:", weights[0], "Bottom weight:", weights[1], "-- Difference:", weights[0] - weights[1])
-        #print("Left weight:", weights[2], "Right weight:", weights[3], "-- Difference:", weights[2] - weights[3])
-        #print()
-        #print("Weights sum:", sum(weights))
-
-        top_bottom = weights[0] - weights[1]
-        left_right = weights[2] - weights[3]
-
-        # ---- EARLY STOP CONDITION GOES HERE ----
-        if abs(top_bottom) < tol and abs(left_right) < tol:
-            #print("Converged early at iteration", iteration)
-            break
-        # ----------------------------------------
-
-        # Horizontal correction (left-right)
-        x_feedback += (weights[2] - weights[3]) / strength
-
-        # Vertical correction (top-bottom)
-        y_feedback += (weights[0] - weights[1]) / strength  # Positive means more weight in the left half, negative means more weight in the right half
-    
-    #print("Final X feedback:", x_feedback, "-->", round(x_feedback))
-    #print("Final Y feedback:", y_feedback, "-->", round(y_feedback))   
-    #and_img.show()
+    x_feedback = com_x - (w / 2)
+    y_feedback = com_y - (h / 2)
 
     width, height = cropped_img.size
     #print("PCB Stepped hole caculated Center: (", width/2 + round(x_feedback), ",", height/2 + round(y_feedback), ")")
@@ -507,10 +326,10 @@ def Main(Current_Module, Image_Name):
         if count > 0:
             center_of_mass_x = sum_x / count
             center_of_mass_y = sum_y / count
-            #print("Center of Mass:", center_of_mass_x, center_of_mass_y)
+           # print("Center of Mass:", center_of_mass_x, center_of_mass_y)
         else:
             return 0, 0, 0, Hole_Type
-            #print("No white pixels found")
+            print("No white pixels found")
 
         filtered_image_data = []
         green_list = []
@@ -683,8 +502,8 @@ def Main(Current_Module, Image_Name):
             X = (b2 - b1) / (m1 - m2)
             Y = m1 * X + b1
 
-            #print("Vector From COM to Calculated Center: (", X - center_of_mass_x, ",", Y - center_of_mass_y, ")")
-            #Vector_Magnitude = ((X - center_of_mass_x)**2 + (Y - center_of_mass_y)**2)**0.5
+            ##print("Vector From COM to Calculated Center: (", X - center_of_mass_x, ",", Y - center_of_mass_y, ")")
+            Vector_Magnitude = ((X - center_of_mass_x)**2 + (Y - center_of_mass_y)**2)**0.5
             #print("Magnitude of Vector:", Vector_Magnitude)
 
             X_component = (X - center_of_mass_x)
@@ -721,10 +540,10 @@ def Main(Current_Module, Image_Name):
 
     #print("Middle Y:", middle)
     #print("Centroids above middle:", above_count)
-    print("More above than below:", more_above)
+    #print("More above than below:", more_above)
 
     if len(ys) < 5:
-        print("[WARN] Only", len(ys), "centroid pixels found. Results may be unreliable.")
+        #print("[WARN] Only", len(ys), "centroid pixels found. Results may be unreliable.")
         plt.figure(figsize=(8, 8))
         #plt.imshow(img)
         plt.title("Mercedes Geometry Overlay")
@@ -780,50 +599,11 @@ def Main(Current_Module, Image_Name):
 
         plt.legend()
         #plt.show()
-
-    import matplotlib.pyplot as plt
-
-    plt.figure(figsize=(6,6))
-    plt.imshow(img)
-
-    # Red dot (COM) — already in crop coordinates
-    plt.scatter([com_x], [com_y], c='red', s=80, label='COM Algorithm')
-
-    # Blue dot (feedback) — convert from center-offset coordinates
-    x_fb_plot = (W / 2) + x_feedback
-    y_fb_plot = (H / 2) + y_feedback
-
-    plt.scatter([x_fb_plot], [y_fb_plot], c='cyan', s=80, label='Feedback Algorithm')
-    
-    # Green dot — geometric centroid (intersection of lines)
-    plt.scatter([X], [Y], c='lime', s=80, label='Geometric Centroid Algorithm')
-
-        # --- draw the lines used for the geometric centroid ---
-    def draw_line_on_final(m, b, color):
-        height, width = img.shape[:2]
-        xs = np.array([0, width])
-        ys = m * xs + b
-        plt.plot(xs, ys, color=color, linewidth=2, alpha=0.7)
-
-    for name, (Gx, Gy, Bx, By) in lines:
-        m = (By - Gy) / (Bx - Gx)
-        b = Gy - m * Gx
-
-        if name == "L1":
-            draw_line_on_final(m, b, 'magenta')
-        elif name == "L2":
-            draw_line_on_final(m, b, 'yellow')
-        elif name == "L3":
-            draw_line_on_final(m, b, 'white')
-
-    plt.legend()
-    plt.axis('off')
-    plt.show()
         
 
-    #print("Offset outputs:", X_component, Y_component, "vs", round(x_feedback), round(y_feedback))
-    return round(X), round(Y), more_above, Hole_Type
-    #return (round(x_feedback)), (round(y_feedback)), more_above, Hole_Type
+
+
+    return (round(x_feedback)), (round(y_feedback)), more_above, Hole_Type
 
 #PCBX, PCBY, more_above = Main("MHF1WCSB0005", "2_3_15.png")
 
