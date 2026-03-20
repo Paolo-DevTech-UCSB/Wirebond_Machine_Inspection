@@ -18,11 +18,13 @@ def Main(Current_Module, Image_Name):
     result = IIP.Main(Current_Module, Image_Name)
 
     # If IIP failed, skip this image
-    if result == (None, None, None):
+    if result == (None, None, None, "Default"):
         print(f"[SKIP] Could not process {Image_Name} in {Current_Module}")
         return None
 
-    PCBX, PCBY, more_above = result
+    if not isinstance(result, (list, tuple)) or len(result) != 4:
+        print("ERROR — Unexpected IIP return format:", result)
+    PCBX, PCBY, more_above, Hole_Type = result
 
     # Crop
     cropped_img = img.crop((400 + PCBX, 375 + PCBY,
@@ -34,21 +36,21 @@ def Main(Current_Module, Image_Name):
     else:
         flipped_img = cropped_img
 
+        # -----------------------------
+    # SAVE PROCESSED IMAGE INTO SUBFOLDERS
     # -----------------------------
-    # SAVE PROCESSED IMAGE (NO SUBFOLDERS)
-    # -----------------------------
-    os.makedirs(PROCESSED_DIR, exist_ok=True)
+    # Hole_Type determines subfolder: "Cal-dot", "Guard-ring", "Default"
+    save_subfolder = os.path.join(PROCESSED_DIR, Hole_Type)
+    os.makedirs(save_subfolder, exist_ok=True)
 
     # Build filename: Module_Cell_processed.png
     base_name = os.path.splitext(Image_Name)[0]
     new_name = f"{Current_Module}_{base_name}_processed.png"
 
-    #print("SAVE FUNCTION REACHED")
-    save_path = os.path.join(PROCESSED_DIR, new_name)
+    save_path = os.path.join(save_subfolder, new_name)
     flipped_img.save(save_path)
 
     print(f"Saved processed image: {save_path}")
-    #print("Saving to:", save_path)
 
     return save_path
 
@@ -57,7 +59,11 @@ def get_unprocessed_images(module_name):
     raw_path = os.path.join(RAW_DIR, module_name)
     raw_files = [f for f in os.listdir(raw_path) if f.lower().endswith(".png")]
 
-    processed_files = os.listdir(PROCESSED_DIR)
+    # Collect ALL processed filenames from ALL subfolders
+    processed_files = []
+    for root, dirs, files in os.walk(PROCESSED_DIR):
+        for f in files:
+            processed_files.append(f)
 
     unprocessed = []
 
@@ -70,6 +76,7 @@ def get_unprocessed_images(module_name):
 
     print("Unprocessed images for module", module_name, ":", unprocessed)
     return unprocessed
+
 
 def get_all_modules():
     return [

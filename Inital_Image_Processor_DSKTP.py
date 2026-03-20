@@ -86,7 +86,7 @@ def Main(Current_Module, Image_Name):
         if is_black:
             black_count += 1
 
-    black_count_THRESHOLD = round(47040 * 0.8)
+    black_count_THRESHOLD = round(47040 * 0.5)
 
     if black_count > black_count_THRESHOLD:
         print("Cal-dot detected — showing mask and cropped image...")
@@ -104,7 +104,7 @@ def Main(Current_Module, Image_Name):
             draw.ellipse((com_x-r, com_y-r, com_x+r, com_y+r), fill=(255,0,0))
 
         mask_img.show()
-        cropped_img.show()
+        #cropped_img.show()
         Hole_Type = "Cal-dot"
     else:
         print("No cal-dot detected")
@@ -117,7 +117,7 @@ def Main(Current_Module, Image_Name):
     guard_mask = []
 
     for (r, g, b) in d:
-        is_gold = (210 <= r <= 255 and 225 <= g <= 260 and 175 <= b <= 220)
+        is_gold = (190 <= r <= 255 and 205 <= g <= 255 and 155 <= b <= 230)
         is_sensor = is_sensor_color(r, g, b)
 
         # COM mask includes gold OR sensor
@@ -130,7 +130,7 @@ def Main(Current_Module, Image_Name):
         if is_gold:
             gold_count += 1
 
-    GUARD_RING_THRESHOLD = round(50265 * 0.5)
+    GUARD_RING_THRESHOLD = round(502650 * 0.4)
 
     if gold_count > GUARD_RING_THRESHOLD:
         print("Guard-ring detected — showing mask and cropped image...")
@@ -144,12 +144,13 @@ def Main(Current_Module, Image_Name):
             print("Guard-ring COM:", com_x2, com_y2)
             draw = ImageDraw.Draw(mask_img)
             r = 8
-            draw.ellipse((com_x2-r, com_y2-r, com_x2+r, com_y2+r), fill=(255,0,0))
+            draw.ellipse((com_x2-r, com_y2-r, com_x2+r, com_y2+r), fill=(0,255,0))
 
         mask_img.show()
-        cropped_img.show()
+        #cropped_img.show()
         Hole_Type = "Guard-ring"
     else:
+        print(gold_count, "gold pixels detected must be above threshold of", GUARD_RING_THRESHOLD)
         print("No guard-ring detected")
 
 
@@ -157,13 +158,13 @@ def Main(Current_Module, Image_Name):
     if Hole_Type == "Cal-dot":
         x_offset = com_x - (W / 2)
         y_offset = com_y - (H / 2)
-        return round(x_offset), round(y_offset), 0
+        return round(x_offset), round(y_offset), 0, Hole_Type
 
     elif Hole_Type == "Guard-ring":
         x_offset = com_x2 - (W / 2)
         y_offset = com_y2 - (H / 2)
-        return round(x_offset), round(y_offset), 1
-
+        return round(x_offset), round(y_offset), 1, Hole_Type
+         
 
     for item in d:
 
@@ -389,6 +390,7 @@ def Main(Current_Module, Image_Name):
         return filtered, count_white
 
     brightness_thresholds = [140, 180, 220, 260, 300]
+    ys = []   # <--- ADD THIS BEFORE THE LOOP
     
     for threshold in brightness_thresholds:
         print(f"Trying brightness threshold: {threshold}")
@@ -403,7 +405,7 @@ def Main(Current_Module, Image_Name):
 
             if count_white == 0:
                 print("No white pixels even with loose threshold — skipping image")
-                return None, None, None
+                return 0, 0, 0, Hole_Type
         
         # After white mask is created:
         filtered_new_image = Image.new("RGB", cropped_img.size)
@@ -444,7 +446,7 @@ def Main(Current_Module, Image_Name):
             center_of_mass_y = sum_y / count
             print("Center of Mass:", center_of_mass_x, center_of_mass_y)
         else:
-            return None, None, None
+            return 0, 0, 0, Hole_Type
             print("No white pixels found")
 
         filtered_image_data = []
@@ -642,7 +644,7 @@ def Main(Current_Module, Image_Name):
 
     if len(ys) == 0 or ys == [None, None, None, None, None, None]:
         print("[WARN] No valid centroids found.")
-        return None, None, None
+        return 0, 0, 0, Hole_Type
 
     middle = sum(ys) / len(ys)
     above_count = sum(1 for y in ys if y < middle)
@@ -719,7 +721,7 @@ def Main(Current_Module, Image_Name):
 
 
 
-    return (round(x_feedback)), (round(y_feedback)), more_above
+    return (round(x_feedback)), (round(y_feedback)), more_above, Hole_Type
 
 #PCBX, PCBY, more_above = Main("MHF1WCSB0005", "2_3_15.png")
 
