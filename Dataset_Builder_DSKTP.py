@@ -27,8 +27,33 @@ def Main(Current_Module, Image_Name):
     PCBX, PCBY, more_above, Hole_Type = result
 
     # Crop
-    cropped_img = img.crop((400 + PCBX, 375 + PCBY,
-                            1400 + PCBX, 1200 + PCBY))
+    X_BIAS = 0
+    left   = PCBX - 500 + X_BIAS
+    top    = PCBY - 412
+    right  = PCBX + 500 + X_BIAS
+    bottom = PCBY + 412
+
+    # Compute crop center
+    crop_center_x = (left + right) / 2
+    crop_center_y = (top + bottom) / 2
+
+    # Compare to PCB center
+    dx = crop_center_x - PCBX
+    dy = crop_center_y - PCBY
+
+    TOL = 5  # pixels
+
+    #print(f"Crop center: ({crop_center_x:.1f}, {crop_center_y:.1f})")
+    #print(f"PCB center:  ({PCBX}, {PCBY})")
+    #print(f"Offset:      dx={dx:.1f}, dy={dy:.1f})")
+
+    #if abs(dx) > TOL or abs(dy) > TOL:
+    #    print('⚠️ WARNING: Crop is not centered on PCB beyond tolerance.')
+    #else:
+    #    print('✅ Crop is centered within tolerance.')
+
+    cropped_img = img.crop((left, top, right, bottom))
+    #cropped_img = img.crop((400 + PCBX, 375 + PCBY, 1400 + PCBX, 1200 + PCBY))
 
     # Flip if needed
     if more_above:

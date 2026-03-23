@@ -25,7 +25,11 @@ def Main(Current_Module, Image_Name):
         return None
 
     # Crop the image (static crop used in your original code)
-    cropped_img = img.crop((400, 375, 1400, 1200))
+    # -----------------------------------------
+    # 1. INITIAL STATIC CROP + TRACK ORIGIN
+    # -----------------------------------------
+    crop_x0, crop_y0 = 400, 375   # <--- ADD THIS
+    cropped_img = img.crop((crop_x0, crop_y0, crop_x0 + 1000, crop_y0 + 825))
     #cropped_img.show()
     #Next Step: Filter the Image to enhance the Visible Sicion:
 
@@ -95,6 +99,8 @@ def Main(Current_Module, Image_Name):
             # Re-crop
             cropped_img = img.crop((new_x1, new_y1, new_x2, new_y2))
             cropped_img = cropped_img.convert("RGB")
+            # UPDATE CROP ORIGIN AFTER RECENTERING
+            crop_x0, crop_y0 = new_x1, new_y1
 
             print("[REALIGN] Crop window adjusted and recropped.")
         else:
@@ -173,62 +179,102 @@ def Main(Current_Module, Image_Name):
         #print("No cal-dot detected")
 
 
+    gx = gy = None
+    sx = sy = None
 
     # ---------------------------------------------------------
     # 2. GUARD-RING FILTERING + DEBUG MASK
     # ---------------------------------------------------------
     gold_count = 0
     guard_mask = []
+    gold_mask = []
+    silicon_mask = []
 
     for (r, g, b) in d:
+
+        # Your gold definition (keep or tighten as needed)
         is_gold = (190 <= r <= 255 and 205 <= g <= 255 and 155 <= b <= 230)
+
+        # Your existing silicon detection
         is_sensor = is_sensor_color(r, g, b)
 
-        # COM mask includes gold OR sensor
+        # Build masks
         if is_gold or is_sensor:
             guard_mask.append((255, 255, 255))
         else:
             guard_mask.append((0, 0, 0))
 
-        # Detection only counts gold
+        # Separate masks for COM calculation
+        gold_mask.append((255,255,255) if is_gold else (0,0,0))
+        silicon_mask.append((255,255,255) if is_sensor else (0,0,0))
+
         if is_gold:
             gold_count += 1
 
-    GUARD_RING_THRESHOLD = round(502650 * 0.4)
+
+    # --- Your existing threshold ---
+    GUARD_RING_THRESHOLD = round(502650 * 0.4 * 0.1)
 
     if gold_count > GUARD_RING_THRESHOLD:
-        #print("Guard-ring detected — showing mask and cropped image...")
 
-        mask_img = Image.new("RGB", (W, H))
-        mask_img.putdata(guard_mask)
+        # Compute COM of gold and silicon
+        gold_com = compute_com_from_mask(gold_mask, W, H)
+        silicon_com = compute_com_from_mask(silicon_mask, W, H)
 
-        # --- Compute COM of guard-ring mask ---
-        com_x2, com_y2 = compute_com_from_mask(guard_mask, W, H)
-        if com_x2 is not None:
-            print("Guard-ring COM:", com_x2, com_y2)
-            draw = ImageDraw.Draw(mask_img)
-            r = 8
-            draw.ellipse((com_x2-r, com_y2-r, com_x2+r, com_y2+r), fill=(0,255,0))
+        if gold_com and silicon_com:
+            gx, gy = gold_com
+            sx, sy = silicon_com
 
-        mask_img.show()
-        #cropped_img.show()
-        Hole_Type = "Guard-ring"
+            # Distance between COMs
+            dist = ((gx - sx)**2 + (gy - sy)**2)**0.5
+            print("Gold–Silicon COM distance:", dist)
+
+            if 180 <= dist <= 320:
+                print("Guard-ring confirmed by COM distance")
+
+                mask_img = Image.new("RGB", (W, H))
+                mask_img.putdata(guard_mask)
+                draw = ImageDraw.Draw(mask_img)
+                r = 8
+
+                # Draw COM dots
+                draw.ellipse((gx-r, gy-r, gx+r, gy+r), fill=(0,0,255))   # gold COM (blue)
+                draw.ellipse((sx-r, sy-r, sx+r, sy+r), fill=(255,0,0))   # silicon COM (red)
+
+                # 🔵 Draw the blue line between COMs
+                draw.line((gx, gy, sx, sy), fill=(0, 0, 255), width=3)
+
+                mask_img.show()
+                cropped_img.show()
+
+                Hole_Type = "Guard-ring"
+
+            else:
+                print("COM distance out of range — rejecting")
+                Hole_Type = "Default"
+
+        else:
+            print("Could not compute COMs — rejecting")
+            Hole_Type = "None"
+
     else:
-        #print(gold_count, "gold pixels detected must be above threshold of", GUARD_RING_THRESHOLD)
-        #print("No guard-ring detected")
-        gaurd = 1 #placeholder line
+        print(gold_count, "gold pixels detected must be above threshold of", GUARD_RING_THRESHOLD)
+        print("No guard-ring detected")
+        guard = 1  # placeholder
 
 
     # PLEASE FIXED SECTION
     if Hole_Type == "Cal-dot":
-        x_offset = com_x - (W / 2)
-        y_offset = com_y - (H / 2)
-        return round(x_offset), round(y_offset), 0, Hole_Type
+        # Use silicon COM (com_x, com_y)
+        X_global = crop_x0 + com_x
+        Y_global = crop_y0 + com_y
+        return round(X_global), round(Y_global), 0, Hole_Type
 
     elif Hole_Type == "Guard-ring":
-        x_offset = com_x2 - (W / 2)
-        y_offset = com_y2 - (H / 2)
-        return round(x_offset), round(y_offset), 1, Hole_Type
+        # Use gold COM (gx, gy)
+        X_global = crop_x0 + gx
+        Y_global = crop_y0 + gy
+        return round(X_global), round(Y_global), 1, Hole_Type
          
 
     for item in d:
@@ -491,26 +537,69 @@ def Main(Current_Module, Image_Name):
 
         filtered_image_data = []
 
+        # ---------------------------------------------------------
+        # 1. STRICT COM (True center of hole)
+        # ---------------------------------------------------------
+
+        strict_sum_x = 0
+        strict_sum_y = 0
+        strict_count = 0
+
+        strict_mask = []
+
         for y in range(height):
             for x in range(width):
                 r, g, b = pixels[x, y]
-                R = ((x - center_x)**2 + (y - center_y)**2)**0.5
 
-                if R < 200 and r == 255 and g == 255 and b == 255:
-                    filtered_image_data.append((255, 255, 255))
-                    sum_x += x
-                    sum_y += y
-                    count += 1
+                # STRICT: only pure white pixels
+                if r > 250 and g > 250 and b > 250:
+                    strict_mask.append((255, 255, 255))
+                    strict_sum_x += x
+                    strict_sum_y += y
+                    strict_count += 1
                 else:
-                    filtered_image_data.append((0, 0, 0))
+                    strict_mask.append((0, 0, 0))
 
-        if count > 0:
-            center_of_mass_x = sum_x / count
-            center_of_mass_y = sum_y / count
-            #print("Center of Mass:", center_of_mass_x, center_of_mass_y)
+        # Compute strict COM
+        if strict_count > 0:
+            com_strict_x = strict_sum_x / strict_count
+            com_strict_y = strict_sum_y / strict_count
         else:
             return 0, 0, 0, Hole_Type
-            #print("No white pixels found")
+
+        # ---------------------------------------------------------
+        # 2. LOOSE COM (Mercedes spokes)
+        # ---------------------------------------------------------
+
+        loose_sum_x = 0
+        loose_sum_y = 0
+        loose_count = 0
+
+        loose_mask = []
+
+        for y in range(height):
+            for x in range(width):
+                r, g, b = pixels[x, y]
+
+                # LOOSE: include spokes + outer ring + bright areas
+                if r > 150 and g > 150 and b > 150:
+                    loose_mask.append((255, 255, 255))
+                    loose_sum_x += x
+                    loose_sum_y += y
+                    loose_count += 1
+                else:
+                    loose_mask.append((0, 0, 0))
+
+        # Compute loose COM
+        if loose_count > 0:
+            com_loose_x = loose_sum_x / loose_count
+            com_loose_y = loose_sum_y / loose_count
+        else:
+            com_loose_x = com_strict_x
+            com_loose_y = com_strict_y
+
+        center_of_mass_x = com_loose_x
+        center_of_mass_y = com_loose_y
 
         filtered_image_data = []
         green_list = []
@@ -519,7 +608,7 @@ def Main(Current_Module, Image_Name):
         for y in range(height):
             for x in range(width):
                 r, g, b = pixels[x, y]
-                R = ((x - center_of_mass_x)**2 + (y - center_of_mass_y)**2)**0.5
+                R = ((x - com_strict_x)**2 + (y - com_strict_y)**2)**0.5
 
                 if 45 < R < 60 and r == 255 and g == 255 and b == 255:
                     filtered_image_data.append((0, 255, 0))
@@ -535,7 +624,7 @@ def Main(Current_Module, Image_Name):
         linear_Points_image = Image.new("RGB", cropped_img.size)
         linear_Points_image.putdata(filtered_image_data)
 
-        #linear_Points_image.show()
+        linear_Points_image.show()
 
         Rad_Green = []
         for point in green_list:
@@ -638,7 +727,6 @@ def Main(Current_Module, Image_Name):
         #print("G2:", G2_x, G2_y)
         #print("G3:", G3_x, G3_y)   
 
-
         low, mid, high = sort_by_theta(Rad_Green)
         lowTheta, lowR = list_avg(low)
         midTheta, midR = list_avg(mid) 
@@ -653,7 +741,7 @@ def Main(Current_Module, Image_Name):
         #print("B2:", B2_x, B2_y)
         #print("B3:", B3_x, B3_y)
 
-        # Build list of valid lines
+               # Build list of valid lines
         lines = []
 
         if None not in (G1_x, G1_y, B1_x, B1_y):
@@ -665,40 +753,103 @@ def Main(Current_Module, Image_Name):
         if None not in (G3_x, G3_y, B3_x, B3_y):
             lines.append(("L3", (G3_x, G3_y, B3_x, B3_y)))
 
+        # -----------------------------------------
+        # 1. Compute angles for each line
+        # -----------------------------------------
+        line_angles = {}   # name → angle
+
+        for name, (Gx, Gy, Bx, By) in lines:
+            dx = Bx - Gx
+            dy = By - Gy
+            angle = np.degrees(np.arctan2(dy, dx)) % 360
+            line_angles[name] = angle
+
+        # Only apply spacing check if we have 3 lines
+        if len(lines) == 3:
+            # -----------------------------------------
+            # 2. Check 120° spacing
+            # -----------------------------------------
+            angles_sorted = sorted(line_angles.items(), key=lambda x: x[1])
+            vals_sorted  = [a for _, a in angles_sorted]
+
+            d1 = vals_sorted[1] - vals_sorted[0]
+            d2 = vals_sorted[2] - vals_sorted[1]
+            d3 = (vals_sorted[0] + 360) - vals_sorted[2]
+
+            diffs = [d1, d2, d3]
+            TOL = 8  # degrees tolerance
+
+            valid_pattern = all(abs(d - 120) < TOL for d in diffs)
+
+            # -----------------------------------------
+            # 3. If invalid, remove the worst line
+            # -----------------------------------------
+            if not valid_pattern:
+                errors = {}
+                for name, angle in line_angles.items():
+                    ideal_diffs = [
+                        abs((angle - 0)   % 360),
+                        abs((angle - 120) % 360),
+                        abs((angle - 240) % 360)
+                    ]
+                    errors[name] = min(ideal_diffs)
+
+                bad_line = max(errors, key=errors.get)
+                print(f"[FILTER] Removing bad line: {bad_line}")
+                lines = [item for item in lines if item[0] != bad_line]
+
         # Need at least two lines
         if len(lines) >= 2:
             # Use the first two valid lines
             (_, (Gx1, Gy1, Bx1, By1)) = lines[0]
             (_, (Gx2, Gy2, Bx2, By2)) = lines[1]
 
-            # Compute slopes
-            m1 = (By1 - Gy1) / (Bx1 - Gx1)
-            m2 = (By2 - Gy2) / (Bx2 - Gx2)
+            # Helper to get (m, b) or vertical form
+            def line_to_mb(x1, y1, x2, y2):
+                dx = x2 - x1
+                dy = y2 - y1
+                if dx == 0:
+                    return None, x1  # vertical: x = b
+                m = dy / dx
+                b = y1 - m * x1
+                return m, b
 
-            # Compute intercepts
-            b1 = Gy1 - m1 * Gx1
-            b2 = Gy2 - m2 * Gx2
+            m1, b1 = line_to_mb(Gx1, Gy1, Bx1, By1)
+            m2, b2 = line_to_mb(Gx2, Gy2, Bx2, By2)
 
-            # Intersection
-            X = (b2 - b1) / (m1 - m2)
-            Y = m1 * X + b1
+            # Compute intersection robustly
+            if m1 is None and m2 is None:
+                # Both vertical → no intersection
+                print("[WARN] Both lines vertical; cannot compute intersection.")
+                X, Y = center_of_mass_x, center_of_mass_y
 
-            #print("Vector From COM to Calculated Center: (", X - center_of_mass_x, ",", Y - center_of_mass_y, ")")
-            #Vector_Magnitude = ((X - center_of_mass_x)**2 + (Y - center_of_mass_y)**2)**0.5
-            #print("Magnitude of Vector:", Vector_Magnitude)
+            elif m1 is None:
+                # Line 1 vertical: x = b1
+                X = b1
+                Y = m2 * X + b2
+
+            elif m2 is None:
+                # Line 2 vertical: x = b2
+                X = b2
+                Y = m1 * X + b1
+
+            else:
+                # Non-vertical lines
+                if abs(m1 - m2) < 1e-6:
+                    print("[WARN] Lines nearly parallel; using COM as fallback.")
+                    X, Y = center_of_mass_x, center_of_mass_y
+                else:
+                    X = (b2 - b1) / (m1 - m2)
+                    Y = m1 * X + b1
 
             X_component = (X - center_of_mass_x)
             Y_component = (Y - center_of_mass_y)
 
-
-
             img = np.array(cropped_img)
-
-            
 
             ys = [y for y in [G1_y, G2_y, G3_y, B1_y, B2_y, B3_y] if y is not None]
 
-            Cenroid_Count = len(ys)   ### LOOP HERE
+            Cenroid_Count = len(ys)
             if Cenroid_Count >= 6:
                 print("All 6 centroids found.")
                 break
@@ -713,8 +864,6 @@ def Main(Current_Module, Image_Name):
     above_count = sum(1 for y in ys if y < middle)
     more_above = above_count > len(ys) / 2
 
-    # Count how many are above the middle (smaller Y = higher in image coordinates)
-    above_count = sum(1 for y in ys if y < middle)
 
     # True if more than half are above
     more_above = above_count > len(ys) / 2
@@ -722,6 +871,8 @@ def Main(Current_Module, Image_Name):
     #print("Middle Y:", middle)
     #print("Centroids above middle:", above_count)
     print("More above than below:", more_above)
+
+   
 
     if len(ys) < 5:
         print("[WARN] Only", len(ys), "centroid pixels found. Results may be unreliable.")
@@ -756,16 +907,7 @@ def Main(Current_Module, Image_Name):
             plt.plot(xs, ys, color=color, linewidth=2)
 
         # Draw only the lines that exist
-        for name, (Gx, Gy, Bx, By) in lines:
-            m = (By - Gy) / (Bx - Gx)
-            b = Gy - m * Gx
-
-            if name == "L1":
-                draw_line(m, b, 'magenta')
-            elif name == "L2":
-                draw_line(m, b, 'yellow')
-            elif name == "L3":
-                draw_line(m, b, 'white')
+        
 
         # --- draw vector from COM → Calculated Center ---
         plt.arrow(
@@ -798,6 +940,11 @@ def Main(Current_Module, Image_Name):
     # Green dot — geometric centroid (intersection of lines)
     plt.scatter([X], [Y], c='lime', s=80, label='Geometric Centroid Algorithm')
 
+    X_global = crop_x0 + X
+    Y_global = crop_y0 + Y
+
+
+
         # --- draw the lines used for the geometric centroid ---
     def draw_line_on_final(m, b, color):
         height, width = img.shape[:2]
@@ -818,11 +965,11 @@ def Main(Current_Module, Image_Name):
 
     plt.legend()
     plt.axis('off')
-    plt.show()
+    #plt.show()
         
 
     #print("Offset outputs:", X_component, Y_component, "vs", round(x_feedback), round(y_feedback))
-    return round(X), round(Y), more_above, Hole_Type
+    return round(X_global), round(Y_global), more_above, Hole_Type
     #return (round(x_feedback)), (round(y_feedback)), more_above, Hole_Type
 
 #PCBX, PCBY, more_above = Main("MHF1WCSB0005", "2_3_15.png")
