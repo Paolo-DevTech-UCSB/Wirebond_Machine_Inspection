@@ -108,126 +108,6 @@ def Main(Current_Module, Image_Name):
     else:
         print("[REALIGN] No sensor-color pixels found — skipping recrop.")
 
-
-    #----------------------------- Adding Ring mask + black COM for recenterig
-    # -------------------------------------------------------------
-    # 3. RING-MASKED DARK COM (robust center refinement)
-    # -------------------------------------------------------------
-
-    pixels = cropped_img.load()
-    W, H = cropped_img.size
-
-    # Step 1: use sensor COM as initial center
-    cx0 = com_x if com_x is not None else W/2
-    cy0 = com_y if com_y is not None else H/2
-
-    # Step 2: define ring region (tune these)
-    INNER_R = 40     # ignore the very center (hole void)
-    OUTER_R = 180    # ignore far edges of crop
-
-    dark_sum_x = 0
-    dark_sum_y = 0
-    dark_count = 0
-
-    for y in range(H):
-        for x in range(W):
-            r, g, b = pixels[x, y]
-
-            # radial distance from initial center
-            R = ((x - cx0)**2 + (y - cy0)**2)**0.5
-
-            # only consider pixels inside the ring
-            if INNER_R < R < OUTER_R:
-
-                # dark pixel condition
-                if (r + g + b) < 120:
-                    dark_sum_x += x
-                    dark_sum_y += y
-                    dark_count += 1
-
-    # Step 3: compute refined center
-    if dark_count > 0:
-        refined_cx = dark_sum_x / dark_count
-        refined_cy = dark_sum_y / dark_count
-    else:
-        refined_cx = cx0
-        refined_cy = cy0
-
-    print(f"[CENTER] Ring-masked dark COM → ({refined_cx:.1f}, {refined_cy:.1f})")
-
-    #------------------------- Ring Mask  -------------------------
-        
-    cropped_img.show()
-
-    """#------------------------------------     Recentering Done     ------------------------------------
-
-    def compute_com(pixels, width, height, condition_fn):
-        sum_x = 0
-        sum_y = 0
-        count = 0
-
-        for y in range(height):
-            for x in range(width):
-                r, g, b = pixels[x, y]
-                if condition_fn(r, g, b):
-                    sum_x += x
-                    sum_y += y
-                    count += 1
-
-        if count == 0:
-            return None  # no pixels matched
-
-        return sum_x / count, sum_y / count
-    
-    com_conditions = {
-        "strict_white": lambda r, g, b: r > 230 and g > 230 and b > 230,
-        "loose_white":  lambda r, g, b: r > 150 and g > 150 and b > 150,
-        "black":        lambda r, g, b: (r + g + b) < 100,
-        "mid_gray":     lambda r, g, b: 100 < (r + g + b) < 300,
-        "red_bias":     lambda r, g, b: r > g and r > b,
-        "green_bias":   lambda r, g, b: g > r and g > b,
-        "blue_bias":    lambda r, g, b: b > r and b > g,
-    }
-
-    pixels = cropped_img.load()
-    width, height = cropped_img.size
-
-    com_results = {}
-
-    for name, fn in com_conditions.items():
-        result = compute_com(pixels, width, height, fn)
-        if result is not None:
-            com_results[name] = result
-
-    # Add true image center for reference
-    com_results["image_center"] = (width / 2, height / 2)
-    draw = ImageDraw.Draw(cropped_img)
-
-    colors = {
-        "image_center": (255, 255, 255),  # white dot
-        "strict_white": (255, 0, 0),
-        "loose_white":  (255, 128, 0),
-        "black":        (0, 255, 0),
-        "mid_gray":     (0, 255, 255),
-        "red_bias":     (255, 0, 255),
-        "green_bias":   (0, 200, 0),
-        "blue_bias":    (0, 128, 255),
-    }
-
-    for name, (cx, cy) in com_results.items():
-        color = colors.get(name, (255, 255, 255))
-        r = 5
-
-        # Draw dot
-        draw.ellipse((cx-r, cy-r, cx+r, cy+r), fill=color)
-
-        # Draw label with slight offset
-        draw.text((cx + 8, cy - 8), name, fill=color)
-
-    cropped_img.show()
-
-    # ----------------------------------------------    Debugging COMs Done    ----------------------------------------------"""
-
     W, H = cropped_img.size
     d = cropped_img.getdata()
     new_image_data = []
@@ -291,7 +171,7 @@ def Main(Current_Module, Image_Name):
             r = 8
             draw.ellipse((com_x-r, com_y-r, com_x+r, com_y+r), fill=(255,0,0))
 
-        mask_img.show()
+        #mask_img.show()
         #cropped_img.show()
         Hole_Type = "Cal-dot"
     else:
@@ -618,7 +498,7 @@ def Main(Current_Module, Image_Name):
 
         return filtered, count_white
 
-    brightness_thresholds = [140, 180, 220, 260, 300]
+    brightness_thresholds = [140, 180, 220, 260, 300, 350]
     ys = []   # <--- ADD THIS BEFORE THE LOOP
     
     for threshold in brightness_thresholds:
@@ -672,7 +552,7 @@ def Main(Current_Module, Image_Name):
                 r, g, b = pixels[x, y]
 
                 # STRICT: only pure white pixels
-                if r > 250 and g > 250 and b > 250:
+                if r > 230 and g > 230 and b > 230:
                     strict_mask.append((255, 255, 255))
                     strict_sum_x += x
                     strict_sum_y += y
@@ -686,6 +566,51 @@ def Main(Current_Module, Image_Name):
             com_strict_y = strict_sum_y / strict_count
         else:
             return 0, 0, 0, Hole_Type
+        
+        # ---------------------------------------------------------
+        # BLACK COM (center of dark region)
+        # ---------------------------------------------------------
+
+        black_sum_x = 0
+        black_sum_y = 0
+        black_count = 0
+
+        for y in range(height):
+            for x in range(width):
+                r, g, b = pixels[x, y]
+
+                # black pixel = NOT white pixel
+                if not (r > 230 and g > 230 and b > 230):
+                    black_sum_x += x
+                    black_sum_y += y
+                    black_count += 1
+
+        if black_count > 0:
+            black_x_com = black_sum_x / black_count
+            black_y_com = black_sum_y / black_count
+        else:
+            # fallback to image center if somehow everything is white
+            black_x_com = center_x
+            black_y_com = center_y
+
+        # Image center
+        center_x = width / 2
+        center_y = height / 2
+
+        # Distance between COM and image center
+        dx = com_strict_x - center_x
+        dy = com_strict_y - center_y
+        dist = (dx*dx + dy*dy) ** 0.5
+
+        # Tolerance (choose one)
+        pixel_tolerance = min(width, height) * 0.10   # 10% of image size
+        # pixel_tolerance = 50                        # or a fixed pixel threshold
+
+        # If COM is too far away, fall back
+        print("dist:", dist, "tolerance:", pixel_tolerance)
+        if dist > pixel_tolerance:
+            com_strict_x = center_x
+            com_strict_y = center_y
 
         # ---------------------------------------------------------
         # 2. LOOSE COM (Mercedes spokes)
@@ -721,6 +646,18 @@ def Main(Current_Module, Image_Name):
         center_of_mass_x = com_loose_x
         center_of_mass_y = com_loose_y
 
+        # ---------------------------------------------------------
+        # FINAL CENTER = weighted strict + black COM
+        # ---------------------------------------------------------
+
+        alpha = 0   # strict COM influence
+        beta  = 1   # black COM influence
+
+        final_cx = alpha * com_strict_x + beta * black_x_com
+        final_cy = alpha * com_strict_y + beta * black_y_com
+
+
+
         filtered_image_data = []
         green_list = []
         blue_list = []
@@ -728,7 +665,7 @@ def Main(Current_Module, Image_Name):
         for y in range(height):
             for x in range(width):
                 r, g, b = pixels[x, y]
-                R = ((x - com_strict_x)**2 + (y - com_strict_y)**2)**0.5
+                R = ((x - final_cx)**2 + (y - final_cy)**2)**0.5
 
                 if 45 < R < 60 and r == 255 and g == 255 and b == 255:
                     filtered_image_data.append((0, 255, 0))
@@ -749,15 +686,15 @@ def Main(Current_Module, Image_Name):
         Rad_Green = []
         for point in green_list:
             x, y = point
-            theta = np.arctan2(y - center_of_mass_y, x - center_of_mass_x)
-            distance = ((x - center_of_mass_x)**2 + (y - center_of_mass_y)**2)**0.5
+            theta = np.arctan2(y - final_cy, x - final_cx)
+            distance = ((x - final_cx)**2 + (y - final_cy)**2)**0.5
             Rad_Green.append((theta, distance))
 
         Rad_Blue = []
         for point in blue_list:
             x, y = point
-            theta = np.arctan2(y - center_of_mass_y, x - center_of_mass_x)
-            distance = ((x - center_of_mass_x)**2 + (y - center_of_mass_y)**2)**0.5
+            theta = np.arctan2(y - final_cy, x - final_cx)
+            distance = ((x - final_cx)**2 + (y - final_cy)**2)**0.5
             Rad_Blue.append((theta, distance))  
 
         def sort_by_theta(points):
@@ -1013,8 +950,7 @@ def Main(Current_Module, Image_Name):
         #plt.scatter(blue_x,  blue_y,  color='cyan', s=80, label='Blue centroids')
 
         # --- plot COM ---
-        #plt.scatter([center_of_mass_x], [center_of_mass_y],
-        #            color='orange', s=120, marker='x', label='Rough COM')
+        #plt.scatter([center_of_mass_x], [center_of_mass_y], color='orange', s=120, marker='x', label='Rough COM')
 
         # --- plot intersection ---
         #plt.scatter([X], [Y],
@@ -1024,7 +960,7 @@ def Main(Current_Module, Image_Name):
         def draw_line(m, b, color):
             xs = np.array([0, img.shape[1]])
             ys = m * xs + b
-            #plt.plot(xs, ys, color=color, linewidth=2)
+            plt.plot(xs, ys, color=color, linewidth=2)
 
         # Draw only the lines that exist
         
@@ -1038,12 +974,12 @@ def Main(Current_Module, Image_Name):
             head_width=10,
             head_length=15,
             length_includes_head=True
-        )
+        )"""
 
-        plt.legend()"""
+        #plt.legend()
         #plt.show()
 
-    import matplotlib.pyplot as plt
+    #import matplotlib.pyplot as plt
 
     #plt.figure(figsize=(6,6))
     #plt.imshow(img)
