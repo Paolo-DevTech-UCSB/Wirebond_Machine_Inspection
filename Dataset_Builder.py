@@ -65,7 +65,7 @@ def Main_Process(Current_Module, Image_Name):
         moreAbove = False
     elif Image_Type == "Default":
         #Center on Mercedes
-        Processed_Center_X, Processed_Center_Y, moreAbove = IPT.Detect_Merc_Center(Classification_Crop)
+        Processed_Center_X, Processed_Center_Y, moreAbove = IPT.Detect_Merc_Center(Classification_Crop, True)
     else:
         Processed_Center_X = 0; Processed_Center_Y = 0
         print("Photo Type:", Image_Type, "Not recognized")
@@ -92,6 +92,7 @@ def Main_Process(Current_Module, Image_Name):
     print(f"Saved processed image: {save_path}")
 
     return save_path
+
 
 
 

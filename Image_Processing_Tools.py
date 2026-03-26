@@ -670,32 +670,9 @@ def Classify_Img(Img, X_off, Y_off):
 def Detect_Merc_Center(img, Details=False):
         width, height = img.size
         pixels = img.load()
-        loose_sum_x = 0
-        loose_sum_y = 0
-        loose_count = 0
 
-        loose_mask = []
-
-        for y in range(height):
-            for x in range(width):
-                r, g, b = pixels[x, y]
-
-                # LOOSE: include spokes + outer ring + bright areas
-                if r > 150 and g > 150 and b > 150:
-                    loose_mask.append((255, 255, 255))
-                    loose_sum_x += x
-                    loose_sum_y += y
-                    loose_count += 1
-                else:
-                    loose_mask.append((0, 0, 0))
-
-        # Compute loose COM
-        if loose_count > 0:
-            com_loose_x = loose_sum_x / loose_count
-            com_loose_y = loose_sum_y / loose_count
-
-        center_of_mass_x = com_loose_x
-        center_of_mass_y = com_loose_y
+        cx = width / 2
+        cy = height / 2
 
         filtered_image_data = []
         green_list = []
@@ -703,69 +680,75 @@ def Detect_Merc_Center(img, Details=False):
 
         for y in range(height):
             for x in range(width):
-                r, g, b = pixels[x, y]
-                R = ((x - com_loose_x)**2 + (y - com_loose_y)**2)**0.5
 
-                if 45 < R < 60 and r == 255 and g == 255 and b == 255:
+                # 1. Threshold: dark → white, bright → black
+                r, g, b = pixels[x, y]
+                is_dark = (r < 150 and g < 150 and b < 150)
+
+                # 2. Distance from center
+                R = ((x - cx)**2 + (y - cy)**2)**0.5
+
+                # 3. Green ring
+                if 60 < R < 80 and is_dark:
                     filtered_image_data.append((0, 255, 0))
                     green_list.append((x, y))
-                elif 90 < R < 110 and r == 255 and g == 255 and b == 255:
-                    filtered_image_data.append((0, 0, 255)) 
+
+                # 4. Blue ring
+                elif 110 < R < 130 and is_dark:
+                    filtered_image_data.append((0, 0, 255))
                     blue_list.append((x, y))
-                elif r == 255 and g == 255 and b == 255:
+
+                # 5. White mask (dark pixels)
+                elif is_dark:
                     filtered_image_data.append((255, 255, 255))
+
+                # 6. Everything else black
                 else:
                     filtered_image_data.append((0, 0, 0))
 
+        # Build output image
         linear_Points_image = Image.new("RGB", img.size)
         linear_Points_image.putdata(filtered_image_data)
 
-        if Details: linear_Points_image.show()
+        if Details:
+            linear_Points_image.show()
+            input("Check_Output... Press enter.... ")
+
+
 
         Rad_Green = []
         for point in green_list:
             x, y = point
-            theta = np.arctan2(y - center_of_mass_y, x - center_of_mass_x)
-            distance = ((x - center_of_mass_x)**2 + (y - center_of_mass_y)**2)**0.5
+            theta = np.arctan2(y - cy, x - cx)
+            distance = ((x - cx)**2 + (y - cy)**2)**0.5
             Rad_Green.append((theta, distance))
 
         Rad_Blue = []
         for point in blue_list:
             x, y = point
-            theta = np.arctan2(y - center_of_mass_y, x - center_of_mass_x)
-            distance = ((x - center_of_mass_x)**2 + (y - center_of_mass_y)**2)**0.5
+            theta = np.arctan2(y - cy, x - cx)
+            distance = ((x - cx)**2 + (y - cy)**2)**0.5
             Rad_Blue.append((theta, distance))  
 
         def sort_by_theta(points):
-            list_low_pi = []
-            list_mid_pi = []
-            list_high_pi = []
+            low = []
+            mid = []
+            high = []
 
             for theta, r in points:
-                # normalize angle to [0, 2π)
                 if theta < 0:
                     theta += 2*np.pi
 
-                # Your old custom angular windows
-                if 0 <= theta < np.pi*(1/3):
-                    list_low_pi.append((theta, r))
+                sector = int((theta / (2*np.pi)) * 3)  # 0, 1, or 2
 
-                elif np.pi*(1/3) <= theta < np.pi*(2/3):
-                    list_low_pi.append((theta, r))
+                if sector == 0:
+                    low.append((theta, r))
+                elif sector == 1:
+                    mid.append((theta, r))
+                else:
+                    high.append((theta, r))
 
-                elif np.pi*(2/3) <= theta < np.pi:
-                    list_mid_pi.append((theta, r))
-
-                elif np.pi*(9/8) <= theta < np.pi*(4/3):
-                    list_mid_pi.append((theta, r))
-
-                elif np.pi*(4/3) <= theta < np.pi*(5/3):
-                    list_high_pi.append((theta, r))
-
-                elif np.pi*(5/3) <= theta < np.pi*(17/8):
-                    list_high_pi.append((theta, r))
-
-            return list_low_pi, list_mid_pi, list_high_pi
+            return low, mid, high
         low, mid, high = sort_by_theta(Rad_Blue)
 
         def list_avg(points):
@@ -790,8 +773,8 @@ def Detect_Merc_Center(img, Details=False):
 
             for theta, r in points:
                 # Convert polar → Cartesian
-                x = center_of_mass_x + r * np.cos(theta)
-                y = center_of_mass_y + r * np.sin(theta)
+                x = cx + r * np.cos(theta)
+                y = cy + r * np.sin(theta)
 
                 sx += x
                 sy += y
@@ -814,19 +797,74 @@ def Detect_Merc_Center(img, Details=False):
             )
 
 
-        G1_x, G1_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, lowR,  lowTheta,  "Green Low",  img)
-        G2_x, G2_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, midR,  midTheta,  "Green Mid",  img)
-        G3_x, G3_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, highR, highTheta, "Green High", img)
+        G1_x, G1_y = safe_polar_to_cart(cx, cy, lowR,  lowTheta,  "Green Low",  img)
+        G2_x, G2_y = safe_polar_to_cart(cx, cy, midR,  midTheta,  "Green Mid",  img)
+        G3_x, G3_y = safe_polar_to_cart(cx, cy, highR, highTheta, "Green High", img)
 
         low, mid, high = sort_by_theta(Rad_Green)
         lowTheta, lowR = list_avg(low)
         midTheta, midR = list_avg(mid) 
         highTheta, highR = list_avg(high)
 
-        B1_x, B1_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, lowR,  lowTheta,  "Blue Low",  img)
-        B2_x, B2_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, midR,  midTheta,  "Blue Mid",  img)
-        B3_x, B3_y = safe_polar_to_cart(center_of_mass_x, center_of_mass_y, highR, highTheta, "Blue High", img)
+        B1_x, B1_y = safe_polar_to_cart(cx, cy, lowR,  lowTheta,  "Blue Low",  img)
+        B2_x, B2_y = safe_polar_to_cart(cx, cy, midR,  midTheta,  "Blue Mid",  img)
+        B3_x, B3_y = safe_polar_to_cart(cx, cy, highR, highTheta, "Blue High", img)
 
+        def angle_of(x, y):
+            return np.arctan2(y - cy, x - cx)
+
+        G_thetas = [angle_of(G1_x, G1_y), angle_of(G2_x, G2_y), angle_of(G3_x, G3_y)]
+        B_thetas = [angle_of(B1_x, B1_y), angle_of(B2_x, B2_y), angle_of(B3_x, B3_y)]
+
+        ANGLE_TOL = np.deg2rad(10)
+
+        valid_lines = []
+        for i, (Gx, Gy, Bx, By) in enumerate([(G1_x,G1_y,B1_x,B1_y),
+                                            (G2_x,G2_y,B2_x,B2_y),
+                                            (G3_x,G3_y,B3_x,B3_y)]):
+
+            if None in (Gx, Gy, Bx, By):
+                continue
+
+            if abs(G_thetas[i] - B_thetas[i]) < ANGLE_TOL:
+                valid_lines.append(("L"+str(i+1), (Gx, Gy, Bx, By)))
+            else:
+                print(f"[FILTER] Spoke {i+1} rejected: green/blue angle mismatch")
+
+        def angle_of(x, y):
+            return np.arctan2(y - cy, x - cx)
+
+        # Compute angles for each centroid
+        G_thetas = [
+            angle_of(G1_x, G1_y),
+            angle_of(G2_x, G2_y),
+            angle_of(G3_x, G3_y)
+        ]
+
+        B_thetas = [
+            angle_of(B1_x, B1_y),
+            angle_of(B2_x, B2_y),
+            angle_of(B3_x, B3_y)
+        ]
+
+        ANGLE_TOL = np.deg2rad(10)  # 10 degrees tolerance
+
+        validated_lines = []
+
+        # Loop through the 3 spokes
+        for i, (Gx, Gy, Bx, By) in enumerate([
+            (G1_x, G1_y, B1_x, B1_y),
+            (G2_x, G2_y, B2_x, B2_y),
+            (G3_x, G3_y, B3_x, B3_y)
+        ]):
+            if None in (Gx, Gy, Bx, By):
+                continue
+
+            if abs(G_thetas[i] - B_thetas[i]) < ANGLE_TOL:
+                validated_lines.append(("L" + str(i+1), (Gx, Gy, Bx, By)))
+            else:
+                print(f"[FILTER] Spoke {i+1} rejected: green/blue angle mismatch")
+        
         lines = []
 
         if None not in (G1_x, G1_y, B1_x, B1_y):
@@ -906,7 +944,7 @@ def Detect_Merc_Center(img, Details=False):
             if m1 is None and m2 is None:
                 # Both vertical → no intersection
                 print("[WARN] Both lines vertical; cannot compute intersection.")
-                X, Y = center_of_mass_x, center_of_mass_y
+                X, Y = cx, cy
 
             elif m1 is None:
                 # Line 1 vertical: x = b1
@@ -922,15 +960,15 @@ def Detect_Merc_Center(img, Details=False):
                 # Non-vertical lines
                 if abs(m1 - m2) < 1e-6:
                     print("[WARN] Lines nearly parallel; using COM as fallback.")
-                    X, Y = center_of_mass_x, center_of_mass_y
+                    X, Y = cx, cy
                 else:
                     X = (b2 - b1) / (m1 - m2)
                     Y = m1 * X + b1
 
-            X_off = (X - center_of_mass_x)
-            Y_off = (Y - center_of_mass_y)
+            X_off = (X - cx)
+            Y_off = (Y - cy)
 
-            img = np.array(Img)
+            Img = np.array(img)
 
             ys = [y for y in [G1_y, G2_y, G3_y, B1_y, B2_y, B3_y] if y is not None]
 
@@ -951,7 +989,36 @@ def Detect_Merc_Center(img, Details=False):
             # True if more than half are above
             more_above = above_count > len(ys) / 2
 
-            return X_off, Y_off, more_above
+            
+            def show_lines_on_crop(img, lines):
+                w, h = img.size
+                plt.imshow(img)
+                
+                def draw_line(m, b, color):
+                    xs = np.array([0, w])
+                    ys = m * xs + b
+                    plt.plot(xs, ys, color=color, linewidth=2)
+
+                for name, (Gx, Gy, Bx, By) in lines:
+                    if Bx == Gx:
+                        # vertical line
+                        plt.plot([Gx, Gx], [0, h], color='cyan', linewidth=2)
+                        continue
+
+                    m = (By - Gy) / (Bx - Gx)
+                    b = Gy - m * Gx
+
+                    color = {'L1': 'magenta', 'L2': 'yellow', 'L3': 'white'}.get(name, 'red')
+                    draw_line(m, b, color)
+
+                plt.axis('off')
+                plt.show()
+
+
+            show_lines_on_crop(img, lines)
+
+
+            return X, Y, more_above
         else:
             print("Mercedes Tracking FAILED !!!!!!!!!")
             return 0, 0, 0
