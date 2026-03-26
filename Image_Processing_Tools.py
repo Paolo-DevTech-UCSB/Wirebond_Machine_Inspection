@@ -6,9 +6,7 @@ from wb_config import RAW_DIR
 
 #--------------------Cropper---------------------------
 
-Width, Height = 1000, 824
-
-def Img_Crop(Image, X_off, Y_off, Details = False):
+def Img_Crop(Image, X_off, Y_off, Width, Height, Details = False):
     cropped_img = Image.crop((X_off + 0 , Y_off + 0, X_off + Width , Y_off + Height))
     if Details: cropped_img.show()
     cropped_img = cropped_img.convert("RGB")
@@ -33,6 +31,7 @@ def is_sensor_color(r, g, b):
 #--------------------COM Helpers --------------------------------
 
 def compute_sensor_com(img):
+        
         W, H = img.size
         pix = img.load()
 
@@ -51,7 +50,64 @@ def compute_sensor_com(img):
         if count == 0:
             return None, None
 
-        return sum_x / count, sum_y / count
+        return sum_x / count, sum_y / count, count
+
+"""def compute_darks_com(img):
+        
+        W, H = img.size
+        pix = img.load()
+
+        sum_x = 0
+        sum_y = 0
+        count = 0
+
+        for y in range(H):
+            for x in range(W):
+                r, g, b = pix[x, y]
+                if (r + b + g) < 200:
+                    sum_x += x
+                    sum_y += y
+                    count += 1
+
+        if count == 0:
+            return None, None
+
+        return sum_x / count, sum_y / count"""
+
+def compute_darks_com(img):
+    make_mask=True
+    W, H = img.size
+    pix = img.load()
+
+    sum_x = 0
+    sum_y = 0
+    count = 0
+
+    # Optional mask image
+    mask_img = Image.new("RGB", (W, H), (0, 0, 0))
+    mask_pix = mask_img.load() if make_mask else None
+    
+
+    for y in range(H):
+        for x in range(W):
+            r, g, b = pix[x, y]
+            if r < 20 and g < 30 and b < 100:
+                sum_x += x
+                sum_y += y
+                count += 1
+
+                if make_mask:
+                    mask_pix[x, y] = (255, 255, 255)   # white pixel
+
+    if count == 0:
+        return None, None, None
+
+    x_center = sum_x / count
+    y_center = sum_y / count
+
+    #mask_img.show()
+
+    return x_center, y_center, count
 
 #-------------------------Color COM Analyzer-------------------
 
@@ -188,6 +244,7 @@ def Classify_Img(Img, X_off, Y_off):
 
         return sum_x / count, sum_y / count
 
+    W, H = Img.size
 
     d = Img.getdata()
     for (r, g, b) in d:
@@ -217,18 +274,8 @@ def Classify_Img(Img, X_off, Y_off):
 
         # --- Compute COM of cal-dot mask ---
         com_x, com_y = compute_com_from_mask(caldot_mask, W, H)
-        if com_x is not None:
-            #print("Cal-dot COM:", com_x, com_y)
-            draw = ImageDraw.Draw(mask_img)
-            r = 8
-            draw.ellipse((com_x-r, com_y-r, com_x+r, com_y+r), fill=(255,0,0))
 
-        mask_img.show()
-        #cropped_img.show()
-        Hole_Type = "Cal-dot"
-    else:
-        caldot = 0 #placeholder line
-        #print("No cal-dot detected")
+
 
 
     gx = gy = None
@@ -279,7 +326,7 @@ def Classify_Img(Img, X_off, Y_off):
 
             # Distance between COMs
             dist = ((gx - sx)**2 + (gy - sy)**2)**0.5
-            print("Gold–Silicon COM distance:", dist)
+            #print("Gold–Silicon COM distance:", dist)
 
             if 180 <= dist <= 320:
                 print("Guard-ring confirmed by COM distance")
@@ -302,7 +349,7 @@ def Classify_Img(Img, X_off, Y_off):
                 Hole_Type = "Guard-ring"
 
             else:
-                print("COM distance out of range — rejecting")
+                #print("COM distance out of range — rejecting")
                 Hole_Type = "Default"
 
         else:
