@@ -813,10 +813,22 @@ def Detect_Merc_Center(img, Details=False):
         def angle_of(x, y):
             return np.arctan2(y - cy, x - cx)
 
-        G_thetas = [angle_of(G1_x, G1_y), angle_of(G2_x, G2_y), angle_of(G3_x, G3_y)]
-        B_thetas = [angle_of(B1_x, B1_y), angle_of(B2_x, B2_y), angle_of(B3_x, B3_y)]
+        # First, validate all coordinates BEFORE calling angle_of()
+        if None in (G1_x, G1_y, G2_x, G2_y, G3_x, G3_y,
+                    B1_x, B1_y, B2_x, B2_y, B3_x, B3_y):
+            return None, None, None   # or whatever your function normally returns
+
+        # Now it's safe to compute angles
+        G_thetas = [angle_of(G1_x, G1_y),
+                    angle_of(G2_x, G2_y),
+                    angle_of(G3_x, G3_y)]
+
+        B_thetas = [angle_of(B1_x, B1_y),
+                    angle_of(B2_x, B2_y),
+                    angle_of(B3_x, B3_y)]
 
         ANGLE_TOL = np.deg2rad(10)
+
 
         valid_lines = []
         for i, (Gx, Gy, Bx, By) in enumerate([(G1_x,G1_y,B1_x,B1_y),
@@ -881,147 +893,150 @@ def Detect_Merc_Center(img, Details=False):
         # -----------------------------------------
         line_angles = {}   # name → angle
 
-        for name, (Gx, Gy, Bx, By) in lines:
-            dx = Bx - Gx
-            dy = By - Gy
-            angle = np.degrees(np.arctan2(dy, dx)) % 360
-            line_angles[name] = angle
+        # correct:
+        lines = validated_lines
+        dx = Bx - Gx
+        dy = By - Gy
+        angle = np.degrees(np.arctan2(dy, dx)) % 360
+        #line_angles[name] = angle
 
-        # Only apply spacing check if we have 3 lines
-        if len(lines) == 3:
-            # -----------------------------------------
-            # 2. Check 120° spacing
-            # -----------------------------------------
-            angles_sorted = sorted(line_angles.items(), key=lambda x: x[1])
-            vals_sorted  = [a for _, a in angles_sorted]
+        # -----------------------------------------
+        # Require exactly 3 spokes and ~120° spacing
+        # -----------------------------------------
+        
 
-            d1 = vals_sorted[1] - vals_sorted[0]
-            d2 = vals_sorted[2] - vals_sorted[1]
-            d3 = (vals_sorted[0] + 360) - vals_sorted[2]
-
-            diffs = [d1, d2, d3]
-            TOL = 8  # degrees tolerance
-
-            valid_pattern = all(abs(d - 120) < TOL for d in diffs)
-
-            # -----------------------------------------
-            # 3. If invalid, remove the worst line
-            # -----------------------------------------
-            if not valid_pattern:
-                errors = {}
-                for name, angle in line_angles.items():
-                    ideal_diffs = [
-                        abs((angle - 0)   % 360),
-                        abs((angle - 120) % 360),
-                        abs((angle - 240) % 360)
-                    ]
-                    errors[name] = min(ideal_diffs)
-
-                bad_line = max(errors, key=errors.get)
-                print(f"[FILTER] Removing bad line: {bad_line}")
-                lines = [item for item in lines if item[0] != bad_line]
-
-        # Need at least two lines
-        if len(lines) >= 2:
-            # Use the first two valid lines
-            (_, (Gx1, Gy1, Bx1, By1)) = lines[0]
-            (_, (Gx2, Gy2, Bx2, By2)) = lines[1]
-
-            # Helper to get (m, b) or vertical form
-            def line_to_mb(x1, y1, x2, y2):
-                dx = x2 - x1
-                dy = y2 - y1
-                if dx == 0:
-                    return None, x1  # vertical: x = b
-                m = dy / dx
-                b = y1 - m * x1
-                return m, b
-
-            m1, b1 = line_to_mb(Gx1, Gy1, Bx1, By1)
-            m2, b2 = line_to_mb(Gx2, Gy2, Bx2, By2)
-
-            # Compute intersection robustly
-            if m1 is None and m2 is None:
-                # Both vertical → no intersection
-                print("[WARN] Both lines vertical; cannot compute intersection.")
-                X, Y = cx, cy
-
-            elif m1 is None:
-                # Line 1 vertical: x = b1
-                X = b1
-                Y = m2 * X + b2
-
-            elif m2 is None:
-                # Line 2 vertical: x = b2
-                X = b2
-                Y = m1 * X + b1
-
-            else:
-                # Non-vertical lines
-                if abs(m1 - m2) < 1e-6:
-                    print("[WARN] Lines nearly parallel; using COM as fallback.")
-                    X, Y = cx, cy
-                else:
-                    X = (b2 - b1) / (m1 - m2)
-                    Y = m1 * X + b1
-
-            X_off = (X - cx)
-            Y_off = (Y - cy)
-
-            Img = np.array(img)
-
-            ys = [y for y in [G1_y, G2_y, G3_y, B1_y, B2_y, B3_y] if y is not None]
-
-            Cenroid_Count = len(ys)
-            if Cenroid_Count >= 6:
-                print("All 6 centroids found.")
-            else:
-                print(f"Only {Cenroid_Count} centroids found. Retrying with next brightness threshold...")
-
-            if len(ys) == 0 or ys == [None, None, None, None, None, None]:
-                print("[WARN] No valid centroids found.")
-
-            middle = sum(ys) / len(ys)
-            above_count = sum(1 for y in ys if y < middle)
-            more_above = above_count > len(ys) / 2
-
-
-            # True if more than half are above
-            more_above = above_count > len(ys) / 2
-
+        #Quick Plot to Check the Spokes
+        
+        def show_lines_on_crop(img, lines):
+            w, h = img.size
+            plt.imshow(img)
             
-            def show_lines_on_crop(img, lines):
-                w, h = img.size
-                plt.imshow(img)
-                
-                def draw_line(m, b, color):
-                    xs = np.array([0, w])
-                    ys = m * xs + b
-                    plt.plot(xs, ys, color=color, linewidth=2)
+            def draw_line(m, b, color):
+                xs = np.array([0, w])
+                ys = m * xs + b
+                plt.plot(xs, ys, color=color, linewidth=2)
 
-                for name, (Gx, Gy, Bx, By) in lines:
-                    if Bx == Gx:
-                        # vertical line
-                        plt.plot([Gx, Gx], [0, h], color='cyan', linewidth=2)
-                        continue
+            for name, (Gx, Gy, Bx, By) in lines:
+                if Bx == Gx:
+                    plt.plot([Gx, Gx], [0, h], color='cyan', linewidth=2)
+                    continue
 
-                    m = (By - Gy) / (Bx - Gx)
-                    b = Gy - m * Gx
+                m = (By - Gy) / (Bx - Gx)
+                b = Gy - m * Gx
 
-                    color = {'L1': 'magenta', 'L2': 'yellow', 'L3': 'white'}.get(name, 'red')
-                    draw_line(m, b, color)
+                color = {'L1': 'magenta', 'L2': 'yellow', 'L3': 'white'}.get(name, 'red')
+                draw_line(m, b, color)
 
-                plt.axis('off')
-                plt.show()
+            plt.axis('off')
+            plt.show()
+        
+        show_lines_on_crop(img, lines)
 
-
-            show_lines_on_crop(img, lines)
-
-
-            return X, Y, more_above
-        else:
+        if len(lines) != 3:
+            print("[FILTER] Need exactly 3 spokes; got", len(lines))
             print("Mercedes Tracking FAILED !!!!!!!!!")
             return 0, 0, 0
+
+
+
+
+        angles_sorted = sorted(line_angles.items(), key=lambda x: x[1])
+        vals_sorted  = [a for _, a in angles_sorted]
+
+        d1 = vals_sorted[1] - vals_sorted[0]
+        d2 = vals_sorted[2] - vals_sorted[1]
+        d3 = (vals_sorted[0] + 360) - vals_sorted[2]
+
+        diffs = [d1, d2, d3]
+        TOL = 8  # degrees tolerance
+
+        valid_pattern = all(abs(d - 120) < TOL for d in diffs)
+
+        if not valid_pattern:
+            print("[FILTER] 3 spokes found but not 120° apart:", diffs)
+            print("Mercedes Tracking FAILED !!!!!!!!!")
+            return 0, 0, 0
+
+        # At this point we KNOW we have 3 spokes ~120° apart.
+        # You can still choose any 2 to compute the intersection.
+        # For example, use the first two in `lines`:
+        (_, (Gx1, Gy1, Bx1, By1)) = lines[0]
+        (_, (Gx2, Gy2, Bx2, By2)) = lines[1]
+
+        def line_to_mb(x1, y1, x2, y2):
+            dx = x2 - x1
+            dy = y2 - y1
+            if dx == 0:
+                return None, x1  # vertical: x = b
+            m = dy / dx
+            b = y1 - m * x1
+            return m, b
+
+        m1, b1 = line_to_mb(Gx1, Gy1, Bx1, By1)
+        m2, b2 = line_to_mb(Gx2, Gy2, Bx2, By2)
+
+        # ... keep your existing intersection logic here ...
+
+
+        # Compute intersection robustly
+        if m1 is None and m2 is None:
+            # Both vertical → no intersection
+            print("[WARN] Both lines vertical; cannot compute intersection.")
+            X, Y = cx, cy
+
+        elif m1 is None:
+            # Line 1 vertical: x = b1
+            X = b1
+            Y = m2 * X + b2
+
+        elif m2 is None:
+            # Line 2 vertical: x = b2
+            X = b2
+            Y = m1 * X + b1
+
+        else:
+            # Non-vertical lines
+            if abs(m1 - m2) < 1e-6:
+                print("[WARN] Lines nearly parallel; using COM as fallback.")
+                X, Y = cx, cy
+            else:
+                X = (b2 - b1) / (m1 - m2)
+                Y = m1 * X + b1
+
+        X_off = (X - cx)
+        Y_off = (Y - cy)
+
+        Img = np.array(img)
+
+        ys = [y for y in [G1_y, G2_y, G3_y, B1_y, B2_y, B3_y] if y is not None]
+
+        Cenroid_Count = len(ys)
+        if Cenroid_Count >= 6:
+            print("All 6 centroids found.")
+        else:
+            print(f"Only {Cenroid_Count} centroids found. Retrying with next brightness threshold...")
+
+        if len(ys) == 0 or ys == [None, None, None, None, None, None]:
+            print("[WARN] No valid centroids found.")
+
+        middle = sum(ys) / len(ys)
+        above_count = sum(1 for y in ys if y < middle)
+        more_above = above_count > len(ys) / 2
+
+
+        # True if more than half are above
+        more_above = above_count > len(ys) / 2
+
+        
+
+
+        # ❗ CALL IT HERE, not inside the function
+        show_lines_on_crop(img, lines)
+
+        return X, Y, more_above
+
+
+        #return 0, 0, 0
 
 
 
