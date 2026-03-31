@@ -3,6 +3,7 @@ import os
 import Inital_Image_Processor_DSKTP as IIP
 import Image_Processing_Tools as IPT
 from wb_config import RAW_DIR, PROCESSED_DIR
+import numpy as np
 
 
 def Main_Process(Current_Module, Image_Name):

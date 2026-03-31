@@ -669,6 +669,10 @@ def Classify_Img(Img, X_off, Y_off):
 
 def Detect_Merc_Center(img, Details=False):
         width, height = img.size
+        w, h = img.size
+        centerX = w / 2
+        centerY = h / 2
+
         pixels = img.load()
 
         cx = width / 2
@@ -904,6 +908,29 @@ def Detect_Merc_Center(img, Details=False):
         # Require exactly 3 spokes and ~120° spacing
         # -----------------------------------------
         
+        # Normalize all spokes into point form (use the G point)
+        normalized_lines = []
+
+        for entry in lines:
+            if isinstance(entry, tuple) and len(entry) == 2:
+                # Already a point (recovered spoke)
+                normalized_lines.append(entry)
+
+            else:
+                # Old format: ("L1", (Gx, Gy, Bx, By))
+                name, (Gx, Gy, Bx, By) = entry
+                normalized_lines.append((Gx, Gy))
+
+        # Add recovered spokes
+        if new_spokes is not None:
+            spokeA, spokeB = new_spokes
+            normalized_lines.append(spokeA)
+            normalized_lines.append(spokeB)
+
+        # Replace original lines with normalized version
+        lines = normalized_lines
+
+
 
         #Quick Plot to Check the Spokes
         
@@ -931,17 +958,53 @@ def Detect_Merc_Center(img, Details=False):
             plt.show()
         
         show_lines_on_crop(img, lines)
-
-        if len(lines) != 3:
+        
+        if len(lines) == 0:
             print("[FILTER] Need exactly 3 spokes; got", len(lines))
             print("Mercedes Tracking FAILED !!!!!!!!!")
             return 0, 0, 0
 
+        elif len(lines) < 3:
+
+            new_spokes = None
+
+            # Try to recover using any valid spoke pair
+            if None not in (G1_x, G1_y, B1_x, B1_y):
+                new_spokes = find_other_spokes(G1_x, B1_x, G1_y, B1_y, img)
+
+            elif None not in (G2_x, G2_y, B2_x, B2_y):
+                new_spokes = find_other_spokes(G2_x, B2_x, G2_y, B2_y, img)
+
+            elif None not in (G3_x, G3_y, B3_x, B3_y):
+                new_spokes = find_other_spokes(G3_x, B3_x, G3_y, B3_y, img)
+
+            print(f"[FILTER] Only {len(lines)} spokes found; need 3.")
+
+            # If find_other_spokes succeeded, add the two new spokes
+            if new_spokes is not None:
+                spokeA, spokeB = new_spokes
+
+                # Add them to your line list (or whatever structure you use)
+                lines.append(spokeA)
+                lines.append(spokeB)
+
+                # Recompute angles now that we have 3 spokes
+                line_angles = {}
+                for (x, y) in lines:
+                    angle = np.degrees(np.arctan2(y - centerY, x - centerX)) % 360
+                    line_angles[(x, y)] = angle
+
+                angles_sorted = sorted(line_angles.items(), key=lambda x: x[1])
+                vals_sorted  = [a for _, a in angles_sorted]
 
 
+                print("[FILTER] Added recovered spokes:", spokeA, spokeB)
 
-        angles_sorted = sorted(line_angles.items(), key=lambda x: x[1])
-        vals_sorted  = [a for _, a in angles_sorted]
+            # If still fewer than 3, fail
+            if len(lines) < 3:
+                print("[FILTER] Still fewer than 3 spokes after recovery.")
+                return 0, 0, 0
+
 
         d1 = vals_sorted[1] - vals_sorted[0]
         d2 = vals_sorted[2] - vals_sorted[1]
@@ -1038,8 +1101,288 @@ def Detect_Merc_Center(img, Details=False):
 
         #return 0, 0, 0
 
+def find_other_spokes(X_1, X_2, Y_1, Y_2, img):
+    width, height = img.size
+    centerX = width / 2
+    centerY = height / 2
+
+    first_angle = np.arctan2(Y_1 - Y_2, X_1 - X_2)
+    second_angle = (first_angle + 120 * np.pi / 180) % (2 * np.pi)
+    third_angle = (first_angle + 240 * np.pi / 180) % (2 * np.pi)
+
+    VERTICAL_THRESHOLD = 20
+    m = np.tan(first_angle)
+    b = Y_1 - m * X_1
+    print("slope m =", m, "intercept b =", b)
+
+    if abs(m) <= VERTICAL_THRESHOLD:
+        x1 = centerX
+        y1 = m * centerX + b
+    else:
+        x1 = X_1
+        y1 = centerY
+
+    theta2 = first_angle + 120 * np.pi / 180
+    theta3 = first_angle + 240 * np.pi / 180
+    m2 = np.tan(theta2)
+    m3 = np.tan(theta3)
+
+    # --- FIXED: use x1 instead of centerX ---
+    B2_A = y1 - m2 * x1
+    B2_B = (m*(x1 + 25) + b) - m2*(x1 + 25)
+    B2_C = (m*(x1 + 50) + b) - m2*(x1 + 50)
+    B2_D = (m*(x1 - 25) + b) - m2*(x1 - 25)
+    B2_E = (m*(x1 - 50) + b) - m2*(x1 - 50)
+
+    B3_A = y1 - m3 * x1
+    B3_B = (m*(x1 + 25) + b) - m3*(x1 + 25)
+    B3_C = (m*(x1 + 50) + b) - m3*(x1 + 50)
+    B3_D = (m*(x1 - 25) + b) - m3*(x1 - 25)
+    B3_E = (m*(x1 - 50) + b) - m3*(x1 - 50)
+
+    parallel2 = [(m2, B2_C), (m2, B2_B), (m2, B2_A), (m2, B2_D), (m2, B2_E)]
+    parallel3 = [(m3, B3_C), (m3, B3_B), (m3, B3_A), (m3, B3_D), (m3, B3_E)]
 
 
+
+    grid_points = []
+
+    for (m2_line, B2_line) in parallel2:
+        column_points = []
+        for (m3_line, B3_line) in parallel3:
+            x_int = (B3_line - B2_line) / (m2_line - m3_line)
+            y_int = m2_line * x_int + B2_line
+            column_points.append((x_int, y_int))
+        grid_points.append(column_points)
+
+    # ============================================================
+    # NEW: Robust brightness sampling using FULL BORDER SAMPLING
+    # ============================================================
+
+    def sample_cell(c00, c10, c01, c11, img, N=20):
+        samples = []
+        for u in np.linspace(0.1, 0.9, N):
+            for v in np.linspace(0.1, 0.9, N):
+                # bilinear interpolation
+                x = (1-u)*(1-v)*c00[0] + u*(1-v)*c10[0] + (1-u)*v*c01[0] + u*v*c11[0]
+                y = (1-u)*(1-v)*c00[1] + u*(1-v)*c10[1] + (1-u)*v*c01[1] + u*v*c11[1]
+
+                r, g, b = img.getpixel((int(x), int(y)))
+                lum = 0.2126*r + 0.7152*g + 0.0722*b
+                darkness = 255 - lum
+                samples.append(darkness)
+
+        return np.mean(samples)
+
+
+
+    # ============================
+    # COLUMN BRIGHTNESS (cells)
+    # ============================
+    column_brightness = []
+    for col in range(4):  # only 0–3 have cells
+        cell_values = []
+        for row in range(4):
+            c00 = grid_points[col][row]
+            c10 = grid_points[col+1][row]
+            c01 = grid_points[col][row+1]
+            c11 = grid_points[col+1][row+1]
+            cell_values.append(sample_cell(c00, c10, c01, c11, img))
+        column_brightness.append(np.mean(cell_values))
+
+    # ============================
+    # ROW BRIGHTNESS (cells)
+    # ============================
+    row_brightness = []
+    for row in range(4):  # only 0–3 have cells
+        cell_values = []
+        for col in range(4):
+            c00 = grid_points[col][row]
+            c10 = grid_points[col+1][row]
+            c01 = grid_points[col][row+1]
+            c11 = grid_points[col+1][row+1]
+            cell_values.append(sample_cell(c00, c10, c01, c11, img))
+        row_brightness.append(np.mean(cell_values))
+
+    print("\n=== DEBUG BRIGHTNESS ===")
+    print("Column darkness (higher = darker):")
+    for i, val in enumerate(column_brightness):
+        print(f"  Column {i}: {val}")
+    print("\nRow darkness (higher = darker):")
+    for i, val in enumerate(row_brightness):
+        print(f"  Row {i}: {val}")
+    print("========================\n")
+
+    # pick darkest (max darkness)
+    darkest_col = int(np.argmax(column_brightness))  # 0–3
+    darkest_row = int(np.argmax(row_brightness))     # 0–3
+
+
+
+    print("\n=== DEBUG BRIGHTNESS ===")
+    print("Column brightness sums:")
+    for i, val in enumerate(column_brightness):
+        print(f"  Column {i}: {val}")
+
+    print("\nRow brightness sums:")
+    for i, val in enumerate(row_brightness):
+        print(f"  Row {i}: {val}")
+    print("========================\n")
+
+    print("\n=== GRID ENDPOINT DEBUG ===")
+
+    # Print column endpoints (top and bottom of each column)
+    for col in range(5):
+        top = grid_points[col][0]
+        bottom = grid_points[col][4]
+        print(f"Column {col} endpoints: TOP{top}  BOTTOM{bottom}")
+
+    print()
+
+    # Print row endpoints (left and right of each row)
+    for row in range(5):
+        left = grid_points[0][row]
+        right = grid_points[4][row]
+        print(f"Row {row} endpoints: LEFT{left}  RIGHT{right}")
+
+    print("===========================\n")
+
+
+    print("darkest_col index:", darkest_col)
+    print("darkest_row index:", darkest_row)
+
+    print("darkest_col endpoints:", grid_points[darkest_col][0], grid_points[darkest_col][4])
+    print("darkest_row endpoints:", grid_points[0][darkest_row], grid_points[4][darkest_row])
+
+
+    # --- FIXED: use the correct variable names ---
+    spoke2_x, spoke2_y = grid_points[darkest_col][2]
+    spoke3_x, spoke3_y = grid_points[2][darkest_row]
+
+    ####VERIFY SPOKE POSITIONS 
+
+        # ---------------------------------------------------------
+    # Convert darkest column and row back into actual lines
+    # ---------------------------------------------------------
+
+    # Column line: use top and bottom intersections
+    col_top = grid_points[darkest_col][0]
+    col_bottom = grid_points[darkest_col][4]
+
+    # Row line: use leftmost and rightmost intersections
+    row_left = grid_points[0][darkest_row]
+    row_right = grid_points[4][darkest_row]
+
+    # ---------------------------------------------------------
+    # Plot original spoke + inferred darkest column/row lines
+    # ---------------------------------------------------------
+
+    plt.figure(figsize=(7,7))
+    plt.imshow(img)
+
+    # ---------------------------------------------------------
+    # Original spoke (yellow)
+    # ---------------------------------------------------------
+    plt.plot([X_1, X_2], [Y_1, Y_2], 'y-', linewidth=2, label='Original Spoke')
+
+
+    # ---------------------------------------------------------
+    # Darkest column line (cyan)
+    # ---------------------------------------------------------
+    plt.plot(
+        [col_top[0], col_bottom[0]],
+        [col_top[1], col_bottom[1]],
+        'c-', linewidth=2, label=f'Darkest Column = {darkest_col}'
+    )
+
+
+    # ---------------------------------------------------------
+    # Darkest row line (magenta)
+    # ---------------------------------------------------------
+    plt.plot(
+        [row_left[0], row_right[0]],
+        [row_left[1], row_right[1]],
+        'm-', linewidth=2, label=f'Darkest Row = {darkest_row}'
+    )
+
+
+    # ---------------------------------------------------------
+    # Plot grid intersections + labels
+    # ---------------------------------------------------------
+    for col in range(5):
+        for row in range(5):
+            x, y = grid_points[col][row]
+            plt.scatter(x, y, c='white', s=40)
+            plt.text(
+                x + 3, y - 3,
+                f"({col},{row})",
+                color='white',
+                fontsize=8,
+                ha='left', va='bottom'
+            )
+
+
+    # ---------------------------------------------------------
+    # Draw arrows showing column direction (cyan)
+    # ---------------------------------------------------------
+    for col in range(5):
+        x0, y0 = grid_points[col][0]
+        x1, y1 = grid_points[col][4]
+        plt.arrow(
+            x0, y0,
+            (x1 - x0) * 0.25,
+            (y1 - y0) * 0.25,
+            color='cyan',
+            head_width=6,
+            length_includes_head=True
+        )
+
+
+    # ---------------------------------------------------------
+    # Draw arrows showing row direction (magenta)
+    # ---------------------------------------------------------
+    for row in range(5):
+        x0, y0 = grid_points[0][row]
+        x1, y1 = grid_points[4][row]
+        plt.arrow(
+            x0, y0,
+            (x1 - x0) * 0.25,
+            (y1 - y0) * 0.25,
+            color='magenta',
+            head_width=6,
+            length_includes_head=True
+        )
+
+
+    # ---------------------------------------------------------
+    # Mark the two detected spokes
+    # ---------------------------------------------------------
+    plt.scatter(spoke2_x, spoke2_y, c='cyan', s=120, marker='x')
+    plt.scatter(spoke3_x, spoke3_y, c='magenta', s=120, marker='x')
+
+
+    plt.legend()
+    plt.gca().invert_yaxis()
+    plt.title("Labeled Grid with Darkest Column/Row")
+    plt.show()
+
+
+
+
+    #########################
+
+
+    return (spoke2_x, spoke2_y), (spoke3_x, spoke3_y)
+
+
+
+
+
+    #see how this creates a grid of 16 rombuses? assuming the spokes are in those cells, one collum will
+    #allways be darker than the other three, thats where the spoke is 
+    #the same situation works with the the rows
+    #finding the darkest collumn & row, essentialy gives us the best estimate for the location of the spoke.
+    #which will be returned by this greater fucntion and used to correct the location of the center point.
 
 
 
