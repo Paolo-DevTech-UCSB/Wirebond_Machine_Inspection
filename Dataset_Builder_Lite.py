@@ -66,9 +66,13 @@ def Main_Process(Current_Module, Image_Name):
     elif Image_Type == "Default":
         #Center on Mercedes
         lines = IPT.Detect_Merc_Center(Classification_Crop, False)
-        if len(lines) > 1: 
+        if len(lines) == 3: 
             print("this is len(lines):", len(lines))
-            input("Showing Detected Lines, press Enter to continue...")
+            #input("Showing Detected Lines, press Enter to continue...")
+        elif len(lines) == 2:
+            lines = IPT.infer_missing_spoke_from_two(lines, Classification_Crop)
+            print("Only two spokes detected, inferring third spoke...")
+        
         elif len(lines) == 1:
             print("Only one spoke detected, attempting to find others...")
             (_, (Gx1, Gy1, Bx1, By1)) = lines[0]
@@ -130,17 +134,29 @@ def Main_Process(Current_Module, Image_Name):
     
     Processed_Crop = IPT.Img_Crop(img, Final_West, Final_North, 600, 600)
     
-    def more_above_midpoint(lines):
-        above_count = 0
+    def more_above(lines):
+        """
+        Determine whether the Mercedes is upright ("Y") or upside-down ("peace sign")
+        based on the direction angles of the spokes.
+        Returns True if upright, False if upside-down.
+        """
 
-        for label, (x1, y1, x2, y2) in lines:
-            mid_y = (y1 + y2) / 2
-            if mid_y < 0:
-                above_count += 1
+        angles = []
 
-        return above_count >= 2
+        for _, (x1, y1, x2, y2) in lines:
+            ang = np.arctan2(y2 - y1, x2 - x1)
+            angles.append(ang)
+
+        # Count how many spokes point upward.
+        # In image coordinates, Y increases downward.
+        # So "upward" means angle is between -90° and +90°.
+        upward_count = sum(-np.pi/2 <= a <= np.pi/2 for a in angles)
+
+        # If 2 or more spokes point upward → upright "Y"
+        return upward_count >= 2
+
     
-    moreAbove = more_above_midpoint(lines)
+    moreAbove = more_above(lines)
 
     save_processed_image(Processed_Crop, Image_Type, Current_Module, Image_Name, moreAbove)
 

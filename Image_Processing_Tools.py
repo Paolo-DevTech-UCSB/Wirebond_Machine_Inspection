@@ -383,6 +383,10 @@ def Classify_Img(Img, X_off, Y_off):
 
 
 def Detect_Merc_Center(img, Details=False):
+        def angle_diff(a, b):
+            d = abs(a - b) % (2*np.pi)
+            return min(d, 2*np.pi - d)
+
         width, height = img.size
         pixels = img.load()
 
@@ -464,7 +468,8 @@ def Detect_Merc_Center(img, Details=False):
                     high.append((theta, r))
 
             return low, mid, high
-        low, mid, high = sort_by_theta(Rad_Blue)
+        low_g, mid_g, high_g = sort_by_theta(Rad_Green)
+        green_sizes = [len(low_g), len(mid_g), len(high_g)]
 
         def list_avg(points):
             if len(points) == 0:
@@ -496,9 +501,9 @@ def Detect_Merc_Center(img, Details=False):
 
             return sx / len(points), sy / len(points)
 
-        lowTheta, lowR = list_avg(low)
-        midTheta, midR = list_avg(mid) 
-        highTheta, highR = list_avg(high)
+        g_lowTheta, g_lowR = list_avg(low_g)
+        g_midTheta, g_midR = list_avg(mid_g)
+        g_highTheta, g_highR = list_avg(high_g)
 
         def safe_polar_to_cart(center_x, center_y, R, Theta, label, img=None):
             if R is None or Theta is None:
@@ -512,56 +517,49 @@ def Detect_Merc_Center(img, Details=False):
             )
 
 
-        G1_x, G1_y = safe_polar_to_cart(cx, cy, lowR,  lowTheta,  "Green Low",  img)
-        G2_x, G2_y = safe_polar_to_cart(cx, cy, midR,  midTheta,  "Green Mid",  img)
-        G3_x, G3_y = safe_polar_to_cart(cx, cy, highR, highTheta, "Green High", img)
+        G1_x, G1_y = safe_polar_to_cart(cx, cy, g_lowR,  g_lowTheta,  "Green Low",  img)
+        G2_x, G2_y = safe_polar_to_cart(cx, cy, g_midR,  g_midTheta,  "Green Mid",  img)
+        G3_x, G3_y = safe_polar_to_cart(cx, cy, g_highR, g_highTheta, "Green High", img)
 
-        low, mid, high = sort_by_theta(Rad_Green)
-        lowTheta, lowR = list_avg(low)
-        midTheta, midR = list_avg(mid) 
-        highTheta, highR = list_avg(high)
+        low_b, mid_b, high_b = sort_by_theta(Rad_Blue)
+        blue_sizes = [len(low_b), len(mid_b), len(high_b)]
 
-        B1_x, B1_y = safe_polar_to_cart(cx, cy, lowR,  lowTheta,  "Blue Low",  img)
-        B2_x, B2_y = safe_polar_to_cart(cx, cy, midR,  midTheta,  "Blue Mid",  img)
-        B3_x, B3_y = safe_polar_to_cart(cx, cy, highR, highTheta, "Blue High", img)
+        b_lowTheta, b_lowR = list_avg(low_b)
+        b_midTheta, b_midR = list_avg(mid_b)
+        b_highTheta, b_highR = list_avg(high_b)
+
+        B1_x, B1_y = safe_polar_to_cart(cx, cy, b_lowR,  b_lowTheta,  "Blue Low",  img)
+        B2_x, B2_y = safe_polar_to_cart(cx, cy, b_midR,  b_midTheta,  "Blue Mid",  img)
+        B3_x, B3_y = safe_polar_to_cart(cx, cy, b_highR, b_highTheta, "Blue High", img)
 
         def angle_of(x, y):
             return np.arctan2(y - cy, x - cx)
+
+
+        def centroid_distance_ok(Gx, Gy, Bx, By, min_expected=65, max_expected=85):
+            if None in (Gx, Gy, Bx, By):
+                return False
+
+            d = np.hypot(Bx - Gx, By - Gy)
+
+            return (min_expected <= d <= max_expected)
+
+        def centroid_size_ok(g_size, b_size, min_size=120):
+            return g_size >= min_size and b_size >= min_size
+            
+
 
         # First, validate all coordinates BEFORE calling angle_of()
         if None in (G1_x, G1_y, G2_x, G2_y, G3_x, G3_y,
                     B1_x, B1_y, B2_x, B2_y, B3_x, B3_y):
             return None, None, None   # or whatever your function normally returns
 
-        # Now it's safe to compute angles
-        G_thetas = [angle_of(G1_x, G1_y),
-                    angle_of(G2_x, G2_y),
-                    angle_of(G3_x, G3_y)]
-
-        B_thetas = [angle_of(B1_x, B1_y),
-                    angle_of(B2_x, B2_y),
-                    angle_of(B3_x, B3_y)]
-
-        ANGLE_TOL = np.deg2rad(10)
 
 
-        valid_lines = []
-        for i, (Gx, Gy, Bx, By) in enumerate([(G1_x,G1_y,B1_x,B1_y),
-                                            (G2_x,G2_y,B2_x,B2_y),
-                                            (G3_x,G3_y,B3_x,B3_y)]):
 
-            if None in (Gx, Gy, Bx, By):
-                continue
 
-            if abs(G_thetas[i] - B_thetas[i]) < ANGLE_TOL:
-                valid_lines.append(("L"+str(i+1), (Gx, Gy, Bx, By)))
-            else:
-                print(f"[FILTER] Spoke {i+1} rejected: green/blue angle mismatch")
+        validated_lines = []
 
-        def angle_of(x, y):
-            return np.arctan2(y - cy, x - cx)
-
-        # Compute angles for each centroid
         G_thetas = [
             angle_of(G1_x, G1_y),
             angle_of(G2_x, G2_y),
@@ -574,20 +572,8 @@ def Detect_Merc_Center(img, Details=False):
             angle_of(B3_x, B3_y)
         ]
 
-        #Lines Expected in this format:
-        #(name, (Gx, Gy, Bx, By))
-        unvalidated_lines = []
-        unvalidated_lines.append(("L1", (G1_x, G1_y, B1_x, B1_y)))
-        unvalidated_lines.append(("L2", (G2_x, G2_y, B2_x, B2_y)))
-        unvalidated_lines.append(("L3", (G3_x, G3_y, B3_x, B3_y)))
+        ANGLE_TOL = np.deg2rad(10)
 
-        show_lines_on_crop(linear_Points_image, unvalidated_lines)
-
-        ANGLE_TOL = np.deg2rad(20)  # 20 degrees tolerance
-
-        validated_lines = []
-
-        # Loop through the 3 spokes
         for i, (Gx, Gy, Bx, By) in enumerate([
             (G1_x, G1_y, B1_x, B1_y),
             (G2_x, G2_y, B2_x, B2_y),
@@ -596,42 +582,35 @@ def Detect_Merc_Center(img, Details=False):
             if None in (Gx, Gy, Bx, By):
                 continue
 
-            if abs(G_thetas[i] - B_thetas[i]) < ANGLE_TOL:
+            # Compute angle difference correctly
+            ang_diff = angle_diff(G_thetas[i], B_thetas[i])
+
+            # Compute centroid distance
+            d = np.hypot(Bx - Gx, By - Gy)
+            min_expected = 65
+            max_expected = 85
+            dist_ok = (min_expected <= d <= max_expected)
+            size_ok = centroid_size_ok(green_sizes[i], blue_sizes[i])
+
+            #print(f"\n--- SPOKE {i+1} ---")
+            #print(f"Green centroid: ({Gx:.2f}, {Gy:.2f})")
+            #print(f"Blue  centroid: ({Bx:.2f}, {By:.2f})")
+            #print(f"Green size:     {green_sizes[i]}")
+            #print(f"Blue size:      {blue_sizes[i]}")
+            #print(f"Distance:       {d:.2f} px")
+            #print(f"Angle diff:     {ang_diff:.3f} rad")
+
+
+            # Final validation
+            if dist_ok and size_ok and ang_diff < ANGLE_TOL:
                 validated_lines.append(("L" + str(i+1), (Gx, Gy, Bx, By)))
             else:
-                print(f"[FILTER] Spoke {i+1} rejected: green/blue angle mismatch")
-        
-        lines = []
+                print(f"[FILTER] Spoke {i+1} rejected: "
+                    f"{'size' if not size_ok else 'distance' if not dist_ok else 'angle'}")
 
-        if None not in (G1_x, G1_y, B1_x, B1_y):
-            lines.append(("L1", (G1_x, G1_y, B1_x, B1_y)))
 
-        if None not in (G2_x, G2_y, B2_x, B2_y):
-            lines.append(("L2", (G2_x, G2_y, B2_x, B2_y)))
 
-        if None not in (G3_x, G3_y, B3_x, B3_y):
-            lines.append(("L3", (G3_x, G3_y, B3_x, B3_y)))
-
-        # -----------------------------------------
-        # 1. Compute angles for each line
-        # -----------------------------------------
-        line_angles = {}   # name → angle
-
-        # correct:
-        lines = validated_lines
-        dx = Bx - Gx
-        dy = By - Gy
-        angle = np.degrees(np.arctan2(dy, dx)) % 360
-        #line_angles[name] = angle
-
-        # -----------------------------------------
-        # Require exactly 3 spokes and ~120° spacing
-        # -----------------------------------------
-        
-
-        #Quick Plot to Check the Spokes
-
-        return lines
+        return validated_lines
 
 
 
@@ -849,14 +828,14 @@ def find_other_spokes(X_1, X_2, Y_1, Y_2, img):
             cell_values.append(sample_cell(c00, c10, c01, c11, img))
         row_brightness.append(np.mean(cell_values))
 
-    print("\n=== DEBUG BRIGHTNESS ===")
-    print("Column darkness (higher = darker):")
-    for i, val in enumerate(column_brightness):
-        print(f"  Column {i}: {val}")
-    print("\nRow darkness (higher = darker):")
-    for i, val in enumerate(row_brightness):
-        print(f"  Row {i}: {val}")
-    print("========================\n")
+    #print("\n=== DEBUG BRIGHTNESS ===")
+    #print("Column darkness (higher = darker):")
+    #for i, val in enumerate(column_brightness):
+    #    print(f"  Column {i}: {val}")
+    #print("\nRow darkness (higher = darker):")
+    #for i, val in enumerate(row_brightness):
+    #    print(f"  Row {i}: {val}")
+    #print("========================\n")
 
     darkest_col = int(np.argmax(column_brightness))
     darkest_row = int(np.argmax(row_brightness))
@@ -972,4 +951,85 @@ def find_other_spokes(X_1, X_2, Y_1, Y_2, img):
         ('SPOKE3', spoke3_line)
     ]
 
-    
+
+def infer_missing_spoke_from_two(lines, img=None):
+    """
+    Given exactly 2 spokes, infer the 3rd spoke direction.
+    Returns a list of 3 spokes in the same format as 'find_other_spokes'.
+    """
+
+    if len(lines) != 2:
+        print("infer_missing_spoke_from_two: requires exactly 2 spokes")
+        return lines
+
+    # -------------------------------
+    # Extract the two known spokes
+    # -------------------------------
+    (_, (x1, y1, x2, y2)) = lines[0]
+    (_, (x3, y3, x4, y4)) = lines[1]
+
+    # -------------------------------
+    # Compute their intersection (hub)
+    # -------------------------------
+    hub = get_center_from_spokes(lines)
+    if hub is None or hub == (None, None):
+        print("infer_missing_spoke_from_two: could not compute hub")
+        return lines
+
+    hx, hy = hub
+
+    # -------------------------------
+    # Compute angles of the two spokes
+    # -------------------------------
+    ang1 = np.arctan2(y2 - y1, x2 - x1)
+    ang2 = np.arctan2(y4 - y3, x4 - x3)
+
+    # Normalize to [0, 2π)
+    ang1 = ang1 % (2*np.pi)
+    ang2 = ang2 % (2*np.pi)
+
+    # -------------------------------
+    # The three spokes should be 120° apart.
+    # Find the missing angle.
+    # -------------------------------
+    angles = sorted([ang1, ang2])
+    a, b = angles
+
+    # Candidate missing angles
+    cand1 = (a + 2*np.pi/3) % (2*np.pi)
+    cand2 = (a + 4*np.pi/3) % (2*np.pi)
+
+    # Choose the one that is NOT close to ang2
+    if abs(((cand1 - b + np.pi) % (2*np.pi)) - np.pi) > np.deg2rad(20):
+        missing_angle = cand1
+    else:
+        missing_angle = cand2
+
+    # -------------------------------
+    # Build a short line segment for the missing spoke
+    # -------------------------------
+    L = 60  # length of the segment
+    dx = np.cos(missing_angle)
+    dy = np.sin(missing_angle)
+
+    xA = hx - L * dx
+    yA = hy - L * dy
+    xB = hx + L * dx
+    yB = hy + L * dy
+
+    missing_spoke = ('SPOKE_MISSING', (xA, yA, xB, yB))
+
+    # -------------------------------
+    # Return all three spokes
+    # -------------------------------
+    return [
+        lines[0],
+        lines[1],
+        missing_spoke
+    ]
+
+
+
+def angle_diff(a, b):
+    d = abs(a - b) % (2*np.pi)
+    return min(d, 2*np.pi - d)
