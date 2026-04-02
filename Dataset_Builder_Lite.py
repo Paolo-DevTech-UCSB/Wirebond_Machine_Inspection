@@ -66,8 +66,23 @@ def Main_Process(Current_Module, Image_Name):
     elif Image_Type == "Default":
         #Center on Mercedes
         lines = IPT.Detect_Merc_Center(Classification_Crop, False)
-        if len(lines) > 0: 
-            IPT.show_lines_on_crop(Classification_Crop, lines)
+        if len(lines) > 1: 
+            print("this is len(lines):", len(lines))
+            input("Showing Detected Lines, press Enter to continue...")
+        elif len(lines) == 1:
+            print("Only one spoke detected, attempting to find others...")
+            (_, (Gx1, Gy1, Bx1, By1)) = lines[0]
+            X_1, Y_1 = Bx1, By1
+            X_2, Y_2 = Gx1, Gy1
+
+            lines = IPT.find_other_spokes(X_1, X_2, Y_1, Y_2, Classification_Crop)
+
+        elif len(lines) == 0:
+            print("COMPLETE DMC FAILURE, no spokes found")
+            return 0
+
+        #There needs to be a single line check, and a interspection finder based #1 and a fake.
+        IPT.show_lines_on_crop(Classification_Crop, lines)
 
         Processed_Center_X, Processed_Center_Y = IPT.get_center_from_spokes(lines)
         #print("This is lines:", lines)
@@ -77,10 +92,8 @@ def Main_Process(Current_Module, Image_Name):
         #print(lines)
         #print(type(lines[0]))
 
-        if len(lines) == 0:
-            print("COMPLETE DMC FAILURE, no spokes found")
-            return 0
-        elif len(lines) < 3:
+        
+        if len(lines) < 3:
             (_, (Gx1, Gy1, Bx1, By1)) = lines[0]
             X_1, Y_1 = Bx1, By1
             X_2, Y_2 = Gx1, Gy1
@@ -129,6 +142,9 @@ def Main_Process(Current_Module, Image_Name):
     
     moreAbove = more_above_midpoint(lines)
 
+    save_processed_image(Processed_Crop, Image_Type, Current_Module, Image_Name, moreAbove)
+
+def save_processed_image(Processed_Crop, Image_Type, Current_Module, Image_Name, moreAbove):
     if moreAbove:
         Processed_Crop = Processed_Crop.transpose(Image.FLIP_TOP_BOTTOM)
 
@@ -145,9 +161,6 @@ def Main_Process(Current_Module, Image_Name):
     print(f"Saved processed image: {save_path}")
 
     return save_path
-
-
-
 
 
 
