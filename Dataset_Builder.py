@@ -72,8 +72,8 @@ def Main_Process(Current_Module, Image_Name):
         Processed_Center_X, Processed_Center_Y = IPT.get_center_from_spokes(lines)
         #print("This is lines:", lines)
 
-        Processed_Center_X += Left
-        Processed_Center_Y += Top
+        Processed_Center_X = Processed_Center_X + Left
+        Processed_Center_Y = Processed_Center_Y + Top
         #print(lines)
         #print(type(lines[0]))
 

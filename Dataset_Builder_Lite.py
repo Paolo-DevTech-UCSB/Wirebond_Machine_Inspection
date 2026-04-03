@@ -86,7 +86,7 @@ def Main_Process(Current_Module, Image_Name):
             return 0
 
         #There needs to be a single line check, and a interspection finder based #1 and a fake.
-        IPT.show_lines_on_crop(Classification_Crop, lines)
+        #IPT.show_lines_on_crop(Classification_Crop, lines)
 
         Processed_Center_X, Processed_Center_Y = IPT.get_center_from_spokes(lines)
         #print("This is lines:", lines)
@@ -133,32 +133,36 @@ def Main_Process(Current_Module, Image_Name):
     Final_West = Last_Center_X - 300; Final_North = Last_Center_Y - 300
     
     Processed_Crop = IPT.Img_Crop(img, Final_West, Final_North, 600, 600)
+    save_processed_image(Processed_Crop, Image_Type, Current_Module, Image_Name, more_above(lines, False))
     
-    def more_above(lines):
-        """
-        Determine whether the Mercedes is upright ("Y") or upside-down ("peace sign")
-        based on the direction angles of the spokes.
-        Returns True if upright, False if upside-down.
-        """
+def more_above(lines, debug=False):
+    angles = []
 
-        angles = []
+    if debug:
+        print("\n=== ORIENTATION DEBUG ===")
 
-        for _, (x1, y1, x2, y2) in lines:
-            ang = np.arctan2(y2 - y1, x2 - x1)
-            angles.append(ang)
+    for name, (x1, y1, x2, y2) in lines:
+        ang = np.arctan2(y2 - y1, x2 - x1)
+        angles.append(ang)
 
-        # Count how many spokes point upward.
-        # In image coordinates, Y increases downward.
-        # So "upward" means angle is between -90° and +90°.
-        upward_count = sum(-np.pi/2 <= a <= np.pi/2 for a in angles)
+        if debug:
+            deg = np.degrees(ang)
+            print(f"{name}: ({x1:.1f},{y1:.1f}) → ({x2:.1f},{y2:.1f})  angle = {deg:+.2f}°")
 
-        # If 2 or more spokes point upward → upright "Y"
-        return upward_count >= 2
+    # "Upward" in image coords: -90° to +90°
+    upward_count = sum(-np.pi/2 <= a <= np.pi/2 for a in angles)
 
-    
-    moreAbove = more_above(lines)
+    is_upright = (upward_count <= 1)
 
-    save_processed_image(Processed_Crop, Image_Type, Current_Module, Image_Name, moreAbove)
+    if debug:
+        print(f"Upward spokes: {upward_count} out of {len(angles)}")
+        print("Orientation:", "UPRIGHT (Y)" if is_upright else "UPSIDE-DOWN (peace)")
+        print("==========================\n")
+
+    return is_upright
+
+
+
 
 def save_processed_image(Processed_Crop, Image_Type, Current_Module, Image_Name, moreAbove):
     if moreAbove:

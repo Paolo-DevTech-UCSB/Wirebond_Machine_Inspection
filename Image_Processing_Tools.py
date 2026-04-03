@@ -238,7 +238,7 @@ def Analyze_Img_Colors(img):
         # Draw label with slight offset
         draw.text((cx + 8, cy - 8), name, fill=color)
 
-    cropped_img.show()
+    #cropped_img.show()
 
 #-------------------------Image Classification-------------------------
 
@@ -371,7 +371,7 @@ def Classify_Img(Img, X_off, Y_off):
                 # 🔵 Draw the blue line between COMs
                 draw.line((gx, gy, sx, sy), fill=(0, 0, 255), width=3)
 
-                mask_img.show()
+                #mask_img.show()
                 #cropped_img.show()
 
                 Hole_Type = "Guard-ring"
@@ -408,12 +408,12 @@ def Detect_Merc_Center(img, Details=False):
                 R = ((x - cx)**2 + (y - cy)**2)**0.5
 
                 # 3. Green ring
-                if 60 < R < 80 and is_dark:
+                if 55 < R < 85 and is_dark:
                     filtered_image_data.append((0, 255, 0))
                     green_list.append((x, y))
 
                 # 4. Blue ring
-                elif 110 < R < 130 and is_dark:
+                elif 105 < R < 135 and is_dark:
                     filtered_image_data.append((0, 0, 255))
                     blue_list.append((x, y))
 
@@ -429,9 +429,9 @@ def Detect_Merc_Center(img, Details=False):
         linear_Points_image = Image.new("RGB", img.size)
         linear_Points_image.putdata(filtered_image_data)
 
-        if Details:
-            linear_Points_image.show()
-            input("Check_Output... Press enter.... ")
+        #if Details:
+        #    linear_Points_image.show()
+        #    input("Check_Output... Press enter.... ")
 
 
 
@@ -544,7 +544,7 @@ def Detect_Merc_Center(img, Details=False):
 
             return (min_expected <= d <= max_expected)
 
-        def centroid_size_ok(g_size, b_size, min_size=120):
+        def centroid_size_ok(g_size, b_size, min_size=60):
             return g_size >= min_size and b_size >= min_size
             
 
@@ -574,6 +574,8 @@ def Detect_Merc_Center(img, Details=False):
 
         ANGLE_TOL = np.deg2rad(10)
 
+        All_Lines = []
+
         for i, (Gx, Gy, Bx, By) in enumerate([
             (G1_x, G1_y, B1_x, B1_y),
             (G2_x, G2_y, B2_x, B2_y),
@@ -582,15 +584,26 @@ def Detect_Merc_Center(img, Details=False):
             if None in (Gx, Gy, Bx, By):
                 continue
 
-            # Compute angle difference correctly
-            ang_diff = angle_diff(G_thetas[i], B_thetas[i])
+            
 
             # Compute centroid distance
             d = np.hypot(Bx - Gx, By - Gy)
-            min_expected = 65
-            max_expected = 85
+            min_expected = 40
+            max_expected = 90
             dist_ok = (min_expected <= d <= max_expected)
             size_ok = centroid_size_ok(green_sizes[i], blue_sizes[i])
+            # Compute slope (m)
+            m = (By - Gy) / (Bx - Gx + 1e-6)
+            print("m =", (By - Gy) / (Bx - Gx))
+
+            ALLOWED_SLOPE_RANGES = [
+                (4, 40),      # vertical-ish
+                (-40, -4), 
+                (0.40, 0.65),  # down-left
+                (-0.90, -0.40) # down-right
+            ]
+            slope_ok = any(low <= m <= high for (low, high) in ALLOWED_SLOPE_RANGES)
+
 
             #print(f"\n--- SPOKE {i+1} ---")
             #print(f"Green centroid: ({Gx:.2f}, {Gy:.2f})")
@@ -600,15 +613,25 @@ def Detect_Merc_Center(img, Details=False):
             #print(f"Distance:       {d:.2f} px")
             #print(f"Angle diff:     {ang_diff:.3f} rad")
 
+            COLOR_LABELS = {
+                0: "magenta",
+                1: "yellow",
+                2: "white"
+            }
 
             # Final validation
-            if dist_ok and size_ok and ang_diff < ANGLE_TOL:
+            if dist_ok and slope_ok:
                 validated_lines.append(("L" + str(i+1), (Gx, Gy, Bx, By)))
+                All_Lines.append(("L" + str(i+1), (Gx, Gy, Bx, By)))
             else:
-                print(f"[FILTER] Spoke {i+1} rejected: "
-                    f"{'size' if not size_ok else 'distance' if not dist_ok else 'angle'}")
+                print(f"[FILTER] Spoke {COLOR_LABELS.get(i, 'unknown')} rejected: "
+                    f"{'distance' if not dist_ok else 'slope'}")
+                All_Lines.append(("L" + str(i+1), (Gx, Gy, Bx, By)))
+                print("d, greensize, bluesize:", d, green_sizes[i], blue_sizes[i])
 
 
+
+        #show_lines_on_crop(img, All_Lines)
 
         return validated_lines
 
@@ -737,7 +760,7 @@ def find_other_spokes(X_1, X_2, Y_1, Y_2, img):
     # 2. Build 7 parallel lines for each spoke family
     #    offsets: -75, -50, -25, 0, +25, +50, +75 pixels
     # ---------------------------------------------------------
-    offsets = np.array([-75, -50, -25, 0, 25, 50, 75], dtype=float)
+    offsets = np.array([-50, -25, 0, 25, 50], dtype=float)
     N = len(offsets)  # 7
 
     lines2 = []
@@ -855,7 +878,7 @@ def find_other_spokes(X_1, X_2, Y_1, Y_2, img):
     row_right = grid_points[N-1][darkest_row]
 
     plt.figure(figsize=(7, 7))
-    plt.imshow(img)
+    #plt.imshow(img)
 
     # original spoke
     plt.plot([X_1, X_2], [Y_1, Y_2], 'y-', linewidth=2, label='Original Spoke')
@@ -920,7 +943,7 @@ def find_other_spokes(X_1, X_2, Y_1, Y_2, img):
     plt.legend()
     plt.gca().invert_yaxis()
     plt.title("Labeled 7x7 Grid with Darkest Column/Row (Hub-Centered)")
-    plt.show()
+    #plt.show()
 
     # Convert points into short line segments so get_center_from_spokes() works
     L = 40  # length of the fake line segment
@@ -947,6 +970,7 @@ def find_other_spokes(X_1, X_2, Y_1, Y_2, img):
     )
 
     return [
+        ('ORIGINAL', (X_1, Y_1, X_2, Y_2)),
         ('SPOKE2', spoke2_line),
         ('SPOKE3', spoke3_line)
     ]
