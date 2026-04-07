@@ -28,7 +28,7 @@ def Main_Process(Current_Module, Image_Name):
 
     # (tested with 6/6) Centers were "close" to merc center
     PreClassification_Crop = IPT.Img_Crop(img, West, North, 600, 600)
-    #PreClassification_Crop.show()
+    PreClassification_Crop.show()
 
     #getting new sensor center from PCC
     PCC_Center_x, PCC_Center_y, count = IPT.compute_sensor_com(PreClassification_Crop)
@@ -59,13 +59,16 @@ def Main_Process(Current_Module, Image_Name):
         #center on combined gold and sensor
         Processed_Center_X, Processed_Center_Y, count = IPT.compute_combined_com(Classification_Crop)
         moreAbove = False
-    elif Image_Type == "Guard-ring":
+    elif Image_Type == "Guard-ring":    
         #center on Gold COM
         Processed_Center_X, Processed_Center_Y, count = IPT.compute_gold_com(Classification_Crop)
         moreAbove = False
     elif Image_Type == "Default":
         #Center on Mercedes
-        lines = IPT.Detect_Merc_Center(Classification_Crop, False)
+        lines = IPT.Detect_Merc_Center(Classification_Crop, False, mode="Default")
+        if len(lines) < 3:
+            lines = IPT.Detect_Merc_Center(Classification_Crop, False, mode="Sensor")
+
         if len(lines) == 3: 
             print("this is len(lines):", len(lines))
             #input("Showing Detected Lines, press Enter to continue...")
@@ -133,8 +136,110 @@ def Main_Process(Current_Module, Image_Name):
     Final_West = Last_Center_X - 300; Final_North = Last_Center_Y - 300
     
     Processed_Crop = IPT.Img_Crop(img, Final_West, Final_North, 600, 600)
-    save_processed_image(Processed_Crop, Image_Type, Current_Module, Image_Name, more_above(lines, False))
+    IPT.show_lines_on_crop(Processed_Crop, lines)
+    print("these are thelines being used in the plotter before the ray plotter:", lines)    
+
+    if not isinstance(Processed_Crop, np.ndarray):
+        Processed_Crop_RAY = np.array(Processed_Crop)
+
+    rays = []
+    for i, line in enumerate(lines):
+        split_point = np.array([
+            Last_Center_X - Final_West,
+            Last_Center_Y - Final_North
+            ])
+        ray_dir = IPT.determine_spoke_ray_direction(line, split_point, Processed_Crop_RAY, 200, 50)
+        rays.append({
+            "line": line,
+            "Center Point": split_point,
+            "ray_dir": ray_dir
+        })
+
+    print("This is rays: ", rays)
+
+
+    save_processed_image(Processed_Crop, Image_Type, Current_Module, Image_Name, more_above2(rays))
     
+def more_above2(rays):
+    """
+    rays: list of dicts:
+        {
+            "line": ("L1", (x1,y1,x2,y2)),
+            "intersection": (ix, iy),
+            "ray_dir": (dx, dy)
+        }
+
+    Returns the index of the spoke that is most 'above'
+    (i.e., smallest dy).
+    """
+
+    best_idx = None
+    best_value = float('inf')
+
+    for i, r in enumerate(rays):
+        dx, dy = r["ray_dir"]
+        if dy < best_value:
+            best_value = dy
+            best_idx = i
+
+
+    def debug_plot_rays_fixed(rays, title="Ray Orientation Debug"):
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        plt.figure(figsize=(6,6))
+        plt.title(title)
+        ax = plt.gca()
+        ax.set_aspect('equal', adjustable='box')
+        ax.invert_yaxis()
+
+        colors = ['red', 'green', 'blue']
+
+        for i, r in enumerate(rays):
+            line = r["line"]
+            ray = r["ray_dir"]
+            center = r["Center Point"]  # this is your COM
+
+            #print(f"(LATEST DEBUG)  Ray {i}: direction = {ray}, center = {center}")
+
+            # project center onto the line
+            _, (x1, y1, x2, y2) = line
+            p1 = np.array([x1, y1], float)
+            p2 = np.array([x2, y2], float)
+            v = p2 - p1
+            v = v / np.linalg.norm(v)
+
+            S = np.array(center, float)
+            t = np.dot(S - p1, v)
+            I = p1 + v * t  # projection ON the line
+
+            # draw the line
+            plt.plot([x1, x2], [y1, y2], color=colors[i], alpha=0.3)
+
+            # draw the ray from the SAME anchor point
+            p1 = I
+            p2 = I + ray * 200
+
+            plt.arrow(p1[0], p1[1],
+                    ray[0]*200, ray[1]*200,
+                    head_width=15, head_length=20,
+                    color=colors[i], length_includes_head=True)
+
+            plt.text(p2[0], p2[1], f"Ray {i}", color=colors[i], fontsize=12)
+
+        plt.grid(True)
+        plt.show()
+
+    #debug_plot_rays_fixed(rays)
+
+
+
+
+    return best_idx
+
+
+
+
 def more_above(lines, debug=False):
     angles = []
 
@@ -154,6 +259,7 @@ def more_above(lines, debug=False):
 
     is_upright = (upward_count <= 1)
 
+    
     if debug:
         print(f"Upward spokes: {upward_count} out of {len(angles)}")
         print("Orientation:", "UPRIGHT (Y)" if is_upright else "UPSIDE-DOWN (peace)")

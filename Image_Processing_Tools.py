@@ -379,10 +379,446 @@ def Classify_Img(Img, X_off, Y_off):
 
     return Hole_Type
 
+
+
+def convert_valid_pairs(valid_pairs):
+            """
+            valid_pairs = [
+                ((Gx, Gy), (Bx, By), slope),
+                ...
+            ]
+            Returns:
+                [
+                    ("L1", (Gx, Gy, Bx, By)),
+                    ("L2", (Gx, Gy, Bx, By)),
+                    ...
+                ]
+            """
+            formatted = []
+
+            for i, (g, b, m) in enumerate(valid_pairs):
+                Gx, Gy = g
+                Bx, By = b
+
+                label = "L" + str(i+1)
+                formatted.append((label, (Gx, Gy, Bx, By)))
+
+            return formatted
+
+def select_best_three_lines(green_pts, blue_pts, cx, cy):
+    import numpy as np
+
+    # --- slope calculation ---
+    def slope(p1, p2):
+        x1, y1 = p1
+        x2, y2 = p2
+        dx = x2 - x1
+        dy = y2 - y1
+        if abs(dx) < 1e-6:
+            return float('inf')
+        return dy / dx
+
+    # --- allowed slope families ---
+    ALLOWED_SLOPE_RANGES = [
+        (4, 40),        # steep positive
+        (-40, -4),      # steep negative
+        (0.40, 0.65),   # shallow positive
+        (-0.90, -0.40)  # shallow negative
+    ]
+
+    def slope_family(m):
+        if m == float('inf'):
+            return None
+        for i, (lo, hi) in enumerate(ALLOWED_SLOPE_RANGES):
+            if lo <= m <= hi:
+                return i
+        return None
+
+    # --- line strength metric ---
+    def line_strength(g, b):
+        x1, y1 = g
+        x2, y2 = b
+        return np.hypot(x2 - x1, y2 - y1)
+
+    # --- build candidate list ---
+    candidates = []
+    for g in green_pts:
+        if g is None:
+            continue
+        for b in blue_pts:
+            if b is None:
+                continue
+
+            m = slope(g, b)
+            fam = slope_family(m)
+            if fam is None:
+                continue
+
+            strength = line_strength(g, b)
+            candidates.append({
+                "g": g,
+                "b": b,
+                "m": m,
+                "family": fam,
+                "strength": strength
+            })
+
+    # No candidates? return empty
+    if not candidates:
+        return []
+
+    # --- sort strongest first ---
+    candidates.sort(key=lambda c: c["strength"], reverse=True)
+
+    # --- pick best 3 from different families ---
+    selected = []
+    used_families = set()
+
+    for c in candidates:
+        if c["family"] not in used_families:
+            selected.append(c)
+            used_families.add(c["family"])
+        if len(selected) == 3:
+            break
+
+    # --- convert to your existing format ---
+    valid_pairs = [(c["g"], c["b"], c["m"]) for c in selected]
+    return convert_valid_pairs(valid_pairs)
+
+
+def refine_mercedes_lines(lines, cx, cy):
+    """
+    lines: list of 3 tuples in your format:
+        [("L1", (Gx, Gy, Bx, By)), ...]
+    cx, cy: COM center
+
+    Returns: same format, but with 1 line replaced using geometric refinement.
+    """
+
+    ALLOWED_SLOPE_RANGES = [
+        (4, 40),      # vertical-ish
+        (-40, -4), 
+        (0.40, 0.65),  # down-left
+        (-0.90, -0.40) # down-right
+    ]
+
+    import numpy as np
+
+    # --- helper: convert your line format to (p1, p2) ---
+    def unpack(line):
+        _, (x1, y1, x2, y2) = line
+        return np.array([x1, y1]), np.array([x2, y2])
+
+    # --- helper: line intersection ---
+    def intersect(p1, p2, p3, p4):
+        # Solve intersection of p1->p2 and p3->p4
+        x1, y1 = p1
+        x2, y2 = p2
+        x3, y3 = p3
+        x4, y4 = p4
+
+        denom = (x1-x2)*(y3-y4) - (y1-y2)*(x3-x4)
+        if abs(denom) < 1e-9:
+            return None  # parallel or nearly so
+
+        px = ((x1*y2 - y1*x2)*(x3-x4) - (x1-x2)*(x3*y4 - y3*x4)) / denom
+        py = ((x1*y2 - y1*x2)*(y3-y4) - (y1-y2)*(x3*y4 - y3*x4)) / denom
+        return np.array([px, py])
+
+    # --- unpack the 3 lines ---
+    (p1a, p1b) = unpack(lines[0])
+    (p2a, p2b) = unpack(lines[1])
+    (p3a, p3b) = unpack(lines[2])
+
+    # --- compute triangle corners ---
+    P12 = intersect(p1a, p1b, p2a, p2b)
+    P23 = intersect(p2a, p2b, p3a, p3b)
+    P31 = intersect(p3a, p3b, p1a, p1b)
+
+    corners = [P12, P23, P31]
+
+    # --- compute distances to COM ---
+    COM = np.array([cx, cy])
+    dists = [np.linalg.norm(P - COM) if P is not None else 1e9 for P in corners]
+
+    # --- find closest corner ---
+    best_idx = int(np.argmin(dists))
+    best_corner = corners[best_idx]
+
+    # --- identify opposite line ---
+    # corner P12 opposite L3
+    # corner P23 opposite L1
+    # corner P31 opposite L2
+    opposite_map = {0: 2, 1: 0, 2: 1}
+    opposite_line_index = opposite_map[best_idx]
+
+    # --- keep the two strong lines ---
+    keep_indices = [i for i in range(3) if i != opposite_line_index]
+    L_keep1 = lines[keep_indices[0]]
+    L_keep2 = lines[keep_indices[1]]
+
+    # --- compute average direction of the two strong lines ---
+    # --- determine slope of a line ---
+    def slope_of(line):
+        pA, pB = unpack(line)
+        dx = pB[0] - pA[0]
+        dy = pB[1] - pA[1]
+        if abs(dx) < 1e-6:
+            return float('inf')
+        return dy / dx
+
+    # --- determine slope family ---
+    def slope_family(m):
+        if m == float('inf'):
+            return 0  # treat vertical as family 0
+        for i, (lo, hi) in enumerate(ALLOWED_SLOPE_RANGES):
+            if lo <= m <= hi:
+                return i
+        return None
+
+    # --- find families of the two kept lines ---
+    fam1 = slope_family(slope_of(L_keep1))
+    fam2 = slope_family(slope_of(L_keep2))
+
+    # --- missing family is the one not present ---
+    all_fams = {0, 1, 2, 3}
+    missing = list(all_fams - {fam1, fam2})[0]
+
+    # --- choose a representative slope from the missing family ---
+    lo, hi = ALLOWED_SLOPE_RANGES[missing]
+    target_slope = (lo + hi) / 2.0  # midpoint of allowed range
+
+    # --- build direction vector from slope ---
+    if target_slope == float('inf'):
+        new_dir = np.array([0, 1])  # vertical
+    else:
+        new_dir = np.array([1, target_slope])
+        new_dir = new_dir / np.linalg.norm(new_dir)
+
+    # --- build new corrected line through best_corner ---
+    scale = 2000
+    pA = best_corner - new_dir * scale
+    pB = best_corner + new_dir * scale
+
+    new_line = ("L_new", (pA[0], pA[1], pB[0], pB[1]))
+
+
+    # --- return the two original strong lines + the new corrected one ---
+    return [L_keep1, L_keep2, new_line]
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+def clip_line_to_image(x1, y1, x2, y2, width, height):
+    """
+    Clips a line segment to the image boundaries using Liang-Barsky.
+    Returns clipped endpoints or None if fully outside.
+    """
+    dx = x2 - x1
+    dy = y2 - y1
+
+    p = [-dx, dx, -dy, dy]
+    q = [x1, width - x1, y1, height - y1]
+
+    u1, u2 = 0.0, 1.0
+
+    for pi, qi in zip(p, q):
+        if pi == 0:
+            if qi < 0:
+                return None
+        else:
+            t = qi / pi
+            if pi < 0:
+                if t > u2:
+                    return None
+                if t > u1:
+                    u1 = t
+            else:
+                if t < u1:
+                    return None
+                if t < u2:
+                    u2 = t
+
+    cx1 = x1 + u1 * dx
+    cy1 = y1 + u1 * dy
+    cx2 = x1 + u2 * dx
+    cy2 = y1 + u2 * dy
+
+    return (cx1, cy1, cx2, cy2)
+
+
+def debug_sampling_overlay_clipped(img, line, center, I, v, perp,
+                                   sample_len=80, sample_width=50,
+                                   darkA=None, darkB=None):
+    """
+    Fully clipped debug overlay:
+      - Clips lines, rays, and sampling strips to image boundaries
+      - Draws only visible geometry
+      - Overlays everything on the actual image
+    """
+
+    h, w = img.shape[:2]
+
+    fig, ax = plt.subplots(figsize=(8,8))
+    ax.imshow(img, cmap='gray')
+    ax.set_title("Clipped Sampling Debug Overlay")
+    ax.set_aspect('equal', adjustable='box')
+
+    # Unpack line
+    _, (x1, y1, x2, y2) = line
+
+    # Clip the line to the image
+    clipped = clip_line_to_image(x1, y1, x2, y2, w-1, h-1)
+    if clipped:
+        cx1, cy1, cx2, cy2 = clipped
+        ax.plot([cx1, cx2], [cy1, cy2], 'y-', linewidth=2, label="Line (clipped)")
+
+    # Draw center
+    ax.scatter(center[0], center[1], c='cyan', s=80, label="Center")
+
+    # Draw sampling anchor
+    ax.scatter(I[0], I[1], c='red', s=80, label="Sampling Anchor (I)")
+
+    # Draw sampling rays (clipped)
+    for direction, color, label in [(v, 'lime', 'dirA'), (-v, 'magenta', 'dirB')]:
+
+        # Compute ray endpoint
+        end = I + direction * sample_len * 1.5
+
+        # Clip ray to image
+        clipped_ray = clip_line_to_image(I[0], I[1], end[0], end[1], w-1, h-1)
+        if clipped_ray:
+            rx1, ry1, rx2, ry2 = clipped_ray
+            ax.plot([rx1, rx2], [ry1, ry2], color=color, linewidth=2, label=label)
+
+        # Draw perpendicular sampling strip (clipped)
+        START_OFFSET = 40   # skip first 40 pixels
+        for t in range(START_OFFSET, sample_len):
+
+            base = I + direction * t
+            strip_pts = []
+            for w_ in range(-sample_width, sample_width+1):
+                pt = base + perp * w_
+                x, y = pt
+                if 0 <= x < w and 0 <= y < h:
+                    strip_pts.append((x, y))
+
+            if len(strip_pts) > 1:
+                xs, ys = zip(*strip_pts)
+                ax.plot(xs, ys, color=color, alpha=0.3)
+
+    # Show darkness counts
+    if darkA is not None and darkB is not None:
+        ax.text(10, 20, f"darkA={darkA}, darkB={darkB}",
+                color='white', fontsize=14, bbox=dict(facecolor='black', alpha=0.5))
+
+    ax.legend()
+    plt.show()
+
+
+
+def determine_spoke_ray_direction(line, split_point, img, sample_len=120, sample_width=50):
+    import numpy as np
+
+    # --- unpack line ---
+    _, (x1, y1, x2, y2) = line
+    p1 = np.array([x1, y1], dtype=float)
+    p2 = np.array([x2, y2], dtype=float)
+
+    # --- compute line direction ---
+    v = p2 - p1
+    n = np.linalg.norm(v)
+    if n < 1e-9:
+        return None
+    v = v / n  # THIS is the ONLY direction allowed
+
+    # --- project split_point onto the line ---
+    S = np.array(split_point, dtype=float)
+    t = np.dot(S - p1, v)
+    I = p1 + v * t  # THIS POINT IS ON THE LINE
+
+    # Clamp sampling to within 200px of the center
+    center = np.array(split_point, float)
+    dist = np.linalg.norm(I - center)
+
+    MAX_RADIUS = 200.0
+
+    if dist > MAX_RADIUS:
+        # Pull I back toward the center
+        direction_from_center = (I - center) / dist
+        I = center + direction_from_center * MAX_RADIUS
+
+
+
+    # Two possible ray directions
+    dirA = v
+    dirB = -v
+
+    # --- perpendicular vector for sampling width ---
+    perp = np.array([-v[1], v[0]])
+    perp = perp / np.linalg.norm(perp)
+
+    def sample_darkness(direction):
+        dark_count = 0
+        for t in range(10, sample_len):   # sample_len = 120 recommended
+            base = I + direction * t
+            for w in range(-sample_width, sample_width + 1):  # sample_width = 6 recommended
+                pt = base + perp * w
+                x, y = int(pt[0]), int(pt[1])
+                if 0 <= y < img.shape[0] and 0 <= x < img.shape[1]:
+                    pixel = img[y, x]
+
+                    # convert to grayscale if needed
+                    if isinstance(pixel, (list, tuple, np.ndarray)) and len(pixel) == 3:
+                        pixel = int(pixel[0]*0.114 + pixel[1]*0.587 + pixel[2]*0.299)
+
+                    # tighter dark threshold
+                    if pixel < 120:
+                        dark_count += 1
+
+        return dark_count
+
+    # --- sample both directions ---
+    darkA = sample_darkness(dirA)
+    darkB = sample_darkness(dirB)
+
+    print("Line direction v:", v)
+    """debug_sampling_overlay_clipped(
+        img=img,
+        line=line,
+        center=S,      # original split_point (COM)
+        I=I,           # clamped sampling anchor
+        v=v,           # line direction
+        perp=perp,
+        sample_len=sample_len,
+        sample_width=sample_width,
+        darkA=darkA,
+        darkB=darkB
+    )"""
+
+
+    # --- choose the darker direction ---
+    if darkA >= darkB:
+        return dirA  # THIS IS ALWAYS ±v
+    else:
+        return dirB  # THIS IS ALWAYS ±v
+
+
+
+
 #------------------------- Mercedes Detection Code ------------------------
 
 
-def Detect_Merc_Center(img, Details=False):
+
+
+
+
+
+
+def Detect_Merc_Center(img, Details=False, mode = "Default"):
         def angle_diff(a, b):
             d = abs(a - b) % (2*np.pi)
             return min(d, 2*np.pi - d)
@@ -390,8 +826,18 @@ def Detect_Merc_Center(img, Details=False):
         width, height = img.size
         pixels = img.load()
 
-        cx = width / 2
-        cy = height / 2
+        ##### IF DMC is in the "Default" type mode, itll serch with the mathmatical center
+        if mode == "Sensor":
+            cx, cy, count = compute_combined_com(img)
+
+        elif mode == "Default":
+            cx = width / 2
+            cy = height / 2
+
+        else: 
+            print("Invalid DMC mode:", mode, "using:", "Default")
+            cx = width / 2
+            cy = height / 2
 
         filtered_image_data = []
         green_list = []
@@ -428,6 +874,7 @@ def Detect_Merc_Center(img, Details=False):
         # Build output image
         linear_Points_image = Image.new("RGB", img.size)
         linear_Points_image.putdata(filtered_image_data)
+        #linear_Points_image.show()
 
         #if Details:
         #    linear_Points_image.show()
@@ -448,6 +895,20 @@ def Detect_Merc_Center(img, Details=False):
             theta = np.arctan2(y - cy, x - cx)
             distance = ((x - cx)**2 + (y - cy)**2)**0.5
             Rad_Blue.append((theta, distance))  
+
+        def sort_by_theta_2(points, n_sectors=12):
+            sectors = [[] for _ in range(n_sectors)]
+
+            for theta, r in points:
+                if theta < 0:
+                    theta += 2*np.pi
+
+                # Determine which sector this point belongs to
+                sector = int((theta / (2*np.pi)) * n_sectors)
+                sectors[sector].append((theta, r))
+
+            return sectors
+
 
         def sort_by_theta(points):
             low = []
@@ -470,6 +931,8 @@ def Detect_Merc_Center(img, Details=False):
             return low, mid, high
         low_g, mid_g, high_g = sort_by_theta(Rad_Green)
         green_sizes = [len(low_g), len(mid_g), len(high_g)]
+
+        
 
         def list_avg(points):
             if len(points) == 0:
@@ -531,6 +994,125 @@ def Detect_Merc_Center(img, Details=False):
         B1_x, B1_y = safe_polar_to_cart(cx, cy, b_lowR,  b_lowTheta,  "Blue Low",  img)
         B2_x, B2_y = safe_polar_to_cart(cx, cy, b_midR,  b_midTheta,  "Blue Mid",  img)
         B3_x, B3_y = safe_polar_to_cart(cx, cy, b_highR, b_highTheta, "Blue High", img)
+
+
+        green_points = sort_by_theta_2(Rad_Green, n_sectors=12)   # list of (x, y)
+        blue_points  = sort_by_theta_2(Rad_Blue, n_sectors=12)   # list of (x, y)
+
+        def slope(p1, p2):
+            (x1, y1), (x2, y2) = p1, p2
+            dx = x2 - x1
+            dy = y2 - y1
+
+            if abs(dx) < 1e-6:
+                return float('inf')  # vertical line
+
+            return dy / dx
+
+        def slope_allowed(m, ranges):
+            if m == float('inf'):
+                # Check if any allowed range includes very large slopes
+                return any(r[0] > 1000 or r[1] > 1000 for r in ranges)
+
+            for lo, hi in ranges:
+                if lo <= m <= hi:
+                    return True
+
+            return False
+        
+        """valid_pairs = []
+
+        for g in green_points:
+            for b in blue_points:
+                m = slope(g, b)
+                if slope_allowed(m, ALLOWED_SLOPE_RANGES):
+                    valid_pairs.append((g, b, m))"""
+        
+
+
+        def convert_valid_pairs(valid_pairs):
+            """
+            valid_pairs = [
+                ((Gx, Gy), (Bx, By), slope),
+                ...
+            ]
+            Returns:
+                [
+                    ("L1", (Gx, Gy, Bx, By)),
+                    ("L2", (Gx, Gy, Bx, By)),
+                    ...
+                ]
+            """
+            formatted = []
+
+            for i, (g, b, m) in enumerate(valid_pairs):
+                Gx, Gy = g
+                Bx, By = b
+
+                label = "L" + str(i+1)
+                formatted.append((label, (Gx, Gy, Bx, By)))
+
+            return formatted
+        
+        def sector_to_point(sector):
+            if len(sector) == 0:
+                return None
+            # convert polar → cartesian
+            xs = []
+            ys = []
+            for theta, r in sector:
+                xs.append(cx + r*np.cos(theta))
+                ys.append(cy + r*np.sin(theta))
+            return (np.mean(xs), np.mean(ys))
+
+        green_pts = [sector_to_point(s) for s in green_points]
+        blue_pts  = [sector_to_point(s) for s in blue_points]
+
+        valid_pairs = []
+
+        ALLOWED_SLOPE_RANGES = [
+                (4, 40),      # vertical-ish
+                (-40, -4), 
+                (0.40, 0.65),  # down-left
+                (-0.90, -0.40) # down-right
+            ]
+
+        def slope2(p1, p2):
+            x1, y1 = p1
+            x2, y2 = p2
+            dx = x2 - x1
+            dy = y2 - y1
+
+            if abs(dx) < 1e-6:
+                return float('inf')
+
+            return dy / dx
+
+
+        for g in green_pts:
+            for b in blue_pts:
+                if g is None or b is None:
+                    continue
+                m = slope2(g, b)
+                if slope_allowed(m, ALLOWED_SLOPE_RANGES):
+                    valid_pairs.append((g, b, m))
+
+
+
+        lines = select_best_three_lines(green_pts, blue_pts, cx, cy)
+        lines = refine_mercedes_lines(lines, cx, cy)
+        return lines
+
+        return select_best_three_lines(green_pts, blue_pts, cx, cy)
+
+
+        return convert_valid_pairs(valid_pairs)
+
+
+
+
+
+
 
         def angle_of(x, y):
             return np.arctan2(y - cy, x - cx)
@@ -620,7 +1202,7 @@ def Detect_Merc_Center(img, Details=False):
             }
 
             # Final validation
-            if dist_ok and slope_ok:
+            if slope_ok and dist_ok:
                 validated_lines.append(("L" + str(i+1), (Gx, Gy, Bx, By)))
                 All_Lines.append(("L" + str(i+1), (Gx, Gy, Bx, By)))
             else:
