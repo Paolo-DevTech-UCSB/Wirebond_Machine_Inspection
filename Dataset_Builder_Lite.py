@@ -3,6 +3,7 @@ import os
 import Image_Processing_Tools as IPT
 from wb_config import RAW_DIR, PROCESSED_DIR
 import numpy as np
+from orientation_verification import verify_orientation
 
 
 def Main_Process(Current_Module, Image_Name):
@@ -28,7 +29,7 @@ def Main_Process(Current_Module, Image_Name):
 
     # (tested with 6/6) Centers were "close" to merc center
     PreClassification_Crop = IPT.Img_Crop(img, West, North, 600, 600)
-    PreClassification_Crop.show()
+    #PreClassification_Crop.show()
 
     #getting new sensor center from PCC
     PCC_Center_x, PCC_Center_y, count = IPT.compute_sensor_com(PreClassification_Crop)
@@ -49,7 +50,7 @@ def Main_Process(Current_Module, Image_Name):
     #Classification_Crop.show()
     
     Image_Type = IPT.Classify_Img(Classification_Crop, 0, 0)
-    print("Image Name:", Image_Name, "Type:", Image_Type)
+    #print("Image Name:", Image_Name, "Type:", Image_Type)
     #print(input("next..."))
     # tested: 
 
@@ -65,9 +66,9 @@ def Main_Process(Current_Module, Image_Name):
         moreAbove = False
     elif Image_Type == "Default":
         #Center on Mercedes
-        lines = IPT.Detect_Merc_Center(Classification_Crop, False, mode="Default")
+        lines, orientation = IPT.Detect_Merc_Center(Classification_Crop, False, mode="Default")
         if len(lines) < 3:
-            lines = IPT.Detect_Merc_Center(Classification_Crop, False, mode="Sensor")
+            lines, orientation = IPT.Detect_Merc_Center(Classification_Crop, False, mode="Sensor")
 
         if len(lines) == 3: 
             print("this is len(lines):", len(lines))
@@ -99,13 +100,6 @@ def Main_Process(Current_Module, Image_Name):
         #print(lines)
         #print(type(lines[0]))
 
-        
-        if len(lines) < 3:
-            (_, (Gx1, Gy1, Bx1, By1)) = lines[0]
-            X_1, Y_1 = Bx1, By1
-            X_2, Y_2 = Gx1, Gy1
-
-            lines = IPT.find_other_spokes(X_1, X_2, Y_1, Y_2, Classification_Crop)
 
         center = IPT.get_center_from_spokes(lines)
         if center is None or center == (None, None):
@@ -136,8 +130,8 @@ def Main_Process(Current_Module, Image_Name):
     Final_West = Last_Center_X - 300; Final_North = Last_Center_Y - 300
     
     Processed_Crop = IPT.Img_Crop(img, Final_West, Final_North, 600, 600)
-    IPT.show_lines_on_crop(Processed_Crop, lines)
-    print("these are thelines being used in the plotter before the ray plotter:", lines)    
+    #IPT.show_lines_on_crop(Processed_Crop, lines)
+    #print("these are thelines being used in the plotter before the ray plotter:", lines)    
 
     if not isinstance(Processed_Crop, np.ndarray):
         Processed_Crop_RAY = np.array(Processed_Crop)
@@ -155,11 +149,60 @@ def Main_Process(Current_Module, Image_Name):
             "ray_dir": ray_dir
         })
 
-    print("This is rays: ", rays)
-
-
-    save_processed_image(Processed_Crop, Image_Type, Current_Module, Image_Name, more_above2(rays))
+    #print("This is rays: ", rays)
     
+    moreAbove = (orientation == "upside_down")
+
+    score = verify_orientation(Processed_Crop)
+    print(f"[DEBUG] Mercedes correlation score: {score:.3f}")
+
+
+    score_upright = verify_orientation(Processed_Crop)
+
+    # Try flipped version
+    flipped = Processed_Crop.rotate(180)
+    score_flipped = verify_orientation(flipped)
+
+    # Pick whichever orientation matches the mask better
+    if score_flipped > score_upright:
+        print(f"[DEBUG] Flipped orientation chosen ({score_flipped:.3f} > {score_upright:.3f})")
+        Processed_Crop = flipped
+        moreAbove = False
+    else:
+        print(f"[DEBUG] Upright orientation chosen ({score_upright:.3f} >= {score_flipped:.3f})")
+        moreAbove = False  # because we are saving the corrected version
+
+        # save again or overwrite
+
+
+    saved_path = save_processed_image(Processed_Crop, Image_Type, Current_Module, Image_Name, moreAbove)
+    return saved_path
+
+    
+def detect_orientation_by_dark_weight(img, cx, cy, threshold=150):
+    width, height = img.size
+    pixels = img.load()
+
+    top_dark = 0
+    bottom_dark = 0
+
+    for y in range(height):
+        for x in range(width):
+            r, g, b = pixels[x, y]
+            is_dark = (r < threshold and g < threshold and b < threshold)
+
+            if is_dark:
+                if y < cy:
+                    top_dark += 1
+                else:
+                    bottom_dark += 1
+
+    # If the top half is darker → image is upside down
+    return "upside_down" if top_dark > bottom_dark else "upright"
+
+
+
+
 def more_above2(rays):
     """
     rays: list of dicts:

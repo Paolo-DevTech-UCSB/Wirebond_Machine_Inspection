@@ -21,7 +21,7 @@ def Load_Img(RAW_DIR, Current_Module, Image_Name):
         img.load()  # Force loading the image to catch any issues early
         return img
     except Exception as e:
-        print(f"[SKIP] Cannot open image {img_path}: {e}")
+        #print(f"[SKIP] Cannot open image {img_path}: {e}")
         return None
     
 #--------------------Color Range Helpers----------------------
@@ -401,7 +401,8 @@ def convert_valid_pairs(valid_pairs):
                 Bx, By = b
 
                 label = "L" + str(i+1)
-                formatted.append((label, (Gx, Gy, Bx, By)))
+                formatted.append((label, (Gx, Gy, Bx, By), "GB"))
+
 
             return formatted
 
@@ -716,7 +717,54 @@ def debug_sampling_overlay_clipped(img, line, center, I, v, perp,
                 color='white', fontsize=14, bbox=dict(facecolor='black', alpha=0.5))
 
     ax.legend()
-    plt.show()
+    #plt.show()
+
+
+def enforce_angle_with_scoring(lines, scores, min_angle_deg=40):
+    final = []
+
+    for i, item in enumerate(lines):
+        # Case 1: (label, (x1,y1,x2,y2))
+        if len(item) == 2:
+            label, coords = item
+            x1,y1,x2,y2 = coords
+
+        # Case 2: (x1,y1,x2,y2)
+        elif len(item) == 4:
+            label = f"L{i+1}"
+            x1,y1,x2,y2 = item
+
+        else:
+            raise ValueError(f"Unexpected line format: {item}")
+
+        v1 = np.array([x2-x1, y2-y1], float)
+        v1 /= np.linalg.norm(v1) + 1e-9
+        angle1 = np.degrees(np.arctan2(v1[1], v1[0])) % 360
+
+        keep = True
+        for j, (lbl2, (a1,b1,a2,b2)) in enumerate(final):
+            v2 = np.array([a2-a1, b2-b1], float)
+            v2 /= np.linalg.norm(v2) + 1e-9
+            angle2 = np.degrees(np.arctan2(v2[1], v2[0])) % 360
+
+            diff = abs(angle1 - angle2)
+            diff = min(diff, 360 - diff)
+
+            if diff < min_angle_deg:
+                if scores[i] > scores[j]:
+                    # new spoke replaces old one
+                    final[j] = (label, (x1,y1,x2,y2))
+                    keep = False   # do NOT append again
+                else:
+                    # old spoke stays, new one is rejected
+                    keep = False
+                break
+
+
+        if keep:
+            final.append((label, (x1,y1,x2,y2)))
+
+    return final
 
 
 
@@ -785,7 +833,7 @@ def determine_spoke_ray_direction(line, split_point, img, sample_len=120, sample
     darkA = sample_darkness(dirA)
     darkB = sample_darkness(dirB)
 
-    print("Line direction v:", v)
+    #print("Line direction v:", v)
     """debug_sampling_overlay_clipped(
         img=img,
         line=line,
@@ -807,9 +855,208 @@ def determine_spoke_ray_direction(line, split_point, img, sample_len=120, sample
         return dirB  # THIS IS ALWAYS ±v
 
 
+import matplotlib.pyplot as plt
 
+def plot_debug(img, cx, cy, green_list, blue_list, green_pts, blue_pts, lines=None):
+    """if lines:
+        for item in lines:
+            print("LINE:", item)"""
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+
+    # Show original image
+    ax.imshow(img)
+    ax.set_title("Mercedes Detector Debug View")
+    ax.scatter([cx], [cy], c='yellow', s=80, label="Center")
+
+    # Raw green ring points
+    if green_list:
+        gx = [p[0] for p in green_list]
+        gy = [p[1] for p in green_list]
+        ax.scatter(gx, gy, s=5, c='lime', label="Green Ring Raw")
+
+    # Raw blue ring points
+    if blue_list:
+        bx = [p[0] for p in blue_list]
+        by = [p[1] for p in blue_list]
+        ax.scatter(bx, by, s=5, c='cyan', label="Blue Ring Raw")
+
+    # Sector-averaged green points
+    for p in green_pts:
+        if p is not None:
+            ax.scatter([p[0]], [p[1]], c='green', s=80, marker='x')
+
+    # Sector-averaged blue points
+    for p in blue_pts:
+        if p is not None:
+            ax.scatter([p[0]], [p[1]], c='blue', s=80, marker='x')
+
+    # Draw selected lines (final Mercedes lines)
+    if lines:
+        for item in lines:
+            # Case A: ("L1", (gx, gy, bx, by))
+            if isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], tuple):
+                label, coords = item
+                gx, gy, bx, by = coords
+
+            # Case B: (gx, gy, bx, by)
+            elif isinstance(item, tuple) and len(item) == 4:
+                gx, gy, bx, by = item
+
+            else:
+                #print("Unknown line format:", item)
+                continue
+
+            ax.plot([gx, bx], [gy, by], c='red', linewidth=2)
+
+
+    ax.legend()
+    plt.gca().invert_yaxis()  # Match image coordinate system
+    plt.show()
+
+def score_lines_by_angle(lines, cx=None, cy=None):
+    """
+    lines = [(gx, gy, bx, by), ...]
+    returns a list of scores, one per line
+    lower score = better
+    """
+
+    # Expected spoke directions
+    expected_angles = {
+        "vertical":     np.pi/2,        # 90°
+        "diag_left":    7*np.pi/6,      # 210°
+        "diag_right":   11*np.pi/6      # 330°
+    }
+
+    # If center not provided, estimate from endpoints
+    if cx is None or cy is None:
+        xs = []
+        ys = []
+        for gx, gy, bx, by in lines:
+            xs.extend([gx, bx])
+            ys.extend([gy, by])
+        cx = np.mean(xs)
+        cy = np.mean(ys)
+
+    scores = []
+
+    for (gx, gy, bx, by) in lines:
+
+        # --- Compute geometry ---
+        dx = bx - gx
+        dy = by - gy
+        length = np.hypot(dx, dy)
+        angle = np.arctan2(dy, dx) % (2*np.pi)
+
+        # midpoint radius
+        mx = (gx + bx) / 2
+        my = (gy + by) / 2
+        mid_r = np.hypot(mx - cx, my - cy)
+
+        # endpoint radii
+        r_g = np.hypot(gx - cx, gy - cy)
+        r_b = np.hypot(bx - cx, by - cy)
+
+        # --- Start scoring ---
+        score = 0.0
+
+        # 1. Angle closeness to expected spokes
+        angle_penalty = min(
+            abs((angle - exp + np.pi) % (2*np.pi) - np.pi)
+            for exp in expected_angles.values()
+        )
+        score += angle_penalty * 10   # weight angle heavily
+
+        # 2. Length penalty (ideal ~ 40–60 px)
+        ideal_len = 50
+        score += abs(length - ideal_len) * 0.5
+
+        # 3. Infinite slope penalty
+        if abs(dx) < 1e-3:
+            score += 200   # strong penalty for vertical "infinite" lines
+
+        # 4. Midpoint radius penalty (should be between rings)
+        ideal_mid_r = (80 + 120) / 2   # halfway between green & blue rings
+        score += abs(mid_r - ideal_mid_r) * 0.3
+
+        # 5. Endpoint radius penalties
+        # green ring ~ 70, blue ring ~ 120
+        score += abs(r_g - 70) * 0.4
+        score += abs(r_b - 120) * 0.4
+
+        scores.append(score)
+
+    return scores
+
+
+def normalize_lines(lines):
+    normalized = []
+
+    for item in lines:
+
+        # Case A: ("L1", (gx, gy, bx, by))
+        if isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], tuple):
+            coords = item[1]
+            if len(coords) == 4:
+                normalized.append(coords)
+            elif len(coords) == 2:
+                (gx, gy), (bx, by) = coords
+                normalized.append((gx, gy, bx, by))
+
+        # Case B: ((gx, gy), (bx, by))
+        elif isinstance(item, tuple) and len(item) == 2:
+            (gx, gy), (bx, by) = item
+            normalized.append((gx, gy, bx, by))
+
+        # Case C: (gx, gy, bx, by)
+        elif isinstance(item, tuple) and len(item) == 4:
+            normalized.append(item)
+
+        else:
+            print("WARNING: Unknown line format:", item)
+
+    return normalized
 
 #------------------------- Mercedes Detection Code ------------------------
+
+def is_valid_spoke(line, green_pts, blue_pts, tol=6):
+    gx, gy, bx, by = line
+
+    # Check green endpoint
+    g_match = any(
+        g is not None and np.hypot(gx - g[0], gy - g[1]) < tol
+        for g in green_pts
+    )
+
+    # Check blue endpoint
+    b_match = any(
+        b is not None and np.hypot(bx - b[0], by - b[1]) < tol
+        for b in blue_pts
+    )
+
+    return g_match and b_match
+
+
+def detect_orientation_by_dark_weight(img, cx, cy, threshold=150):
+    width, height = img.size
+    pixels = img.load()
+
+    top_dark = 0
+    bottom_dark = 0
+
+    for y in range(height):
+        for x in range(width):
+            r, g, b = pixels[x, y]
+            is_dark = (r < threshold and g < threshold and b < threshold)
+
+            if is_dark:
+                if y < cy:
+                    top_dark += 1
+                else:
+                    bottom_dark += 1
+
+    # If the top half is darker → image is upside down
+    return "upside_down" if top_dark > bottom_dark else "upright"
 
 
 
@@ -838,6 +1085,9 @@ def Detect_Merc_Center(img, Details=False, mode = "Default"):
             print("Invalid DMC mode:", mode, "using:", "Default")
             cx = width / 2
             cy = height / 2
+
+        orientation = detect_orientation_by_dark_weight(img, cx, cy)
+
 
         filtered_image_data = []
         green_list = []
@@ -970,7 +1220,7 @@ def Detect_Merc_Center(img, Details=False, mode = "Default"):
 
         def safe_polar_to_cart(center_x, center_y, R, Theta, label, img=None):
             if R is None or Theta is None:
-                print(f"[WARN] Missing {label} point group — R or Theta is None")
+                #print(f"[WARN] Missing {label} point group — R or Theta is None")
 
                 return None, None
 
@@ -1054,15 +1304,18 @@ def Detect_Merc_Center(img, Details=False, mode = "Default"):
 
             return formatted
         
+        MIN_SECTOR_POINTS = 8   # tune this
+
         def sector_to_point(sector):
-            if len(sector) == 0:
-                return None
-            # convert polar → cartesian
+            if len(sector) < MIN_SECTOR_POINTS:
+                return None  # reject weak/noisy sectors
+
             xs = []
             ys = []
             for theta, r in sector:
                 xs.append(cx + r*np.cos(theta))
                 ys.append(cy + r*np.sin(theta))
+
             return (np.mean(xs), np.mean(ys))
 
         green_pts = [sector_to_point(s) for s in green_points]
@@ -1093,15 +1346,99 @@ def Detect_Merc_Center(img, Details=False, mode = "Default"):
             for b in blue_pts:
                 if g is None or b is None:
                     continue
+
                 m = slope2(g, b)
-                if slope_allowed(m, ALLOWED_SLOPE_RANGES):
-                    valid_pairs.append((g, b, m))
+
+                # 1. Slope filter
+                if not slope_allowed(m, ALLOWED_SLOPE_RANGES):
+                    continue
+
+                # 2. Length filter
+                dx = b[0] - g[0]
+                dy = b[1] - g[1]
+                dist = np.sqrt(dx*dx + dy*dy)
+
+                MIN_SPOKE_LENGTH = 25
+                MAX_SPOKE_LENGTH = 65
+
+                #print( f"Testing pair G{g} - B{b}: slope={m:.2f}, dist={dist:.2f}")
+                if not (MIN_SPOKE_LENGTH <= dist <= MAX_SPOKE_LENGTH):
+                    continue
+
+                # 3. If both conditions pass, accept the pair
+                valid_pairs.append((g, b, m))
 
 
 
-        lines = select_best_three_lines(green_pts, blue_pts, cx, cy)
+                # 1. Build real G/B lines
+        lines = convert_valid_pairs(valid_pairs)
+
+        # 2. Refine them (may create synthetic bad lines)
         lines = refine_mercedes_lines(lines, cx, cy)
-        return lines
+
+        # 3. Normalize them (may create synthetic bad lines)
+        new_lines = normalize_lines(lines)
+
+        # 4. NOW filter out any line that does NOT match real G/B centroids
+        new_lines = [line for line in new_lines if is_valid_spoke(line, green_pts, blue_pts)]
+
+        # 5. Score only the valid lines
+        lines_scores = score_lines_by_angle(new_lines)
+
+        # 6. Enforce angle separation
+        lines = enforce_angle_with_scoring(new_lines, lines_scores, min_angle_deg=40)
+
+
+        # If we have exactly 2 spokes, infer the missing one
+        if len(lines) == 2:
+            lines = infer_missing_spoke_from_two(lines)
+            # If we have 3 spokes, verify angle spacing
+        elif len(lines) == 3:
+            angles = []
+            for _, (x1,y1,x2,y2) in lines:
+                ang = np.degrees(np.arctan2(y2-y1, x2-x1)) % 360
+                angles.append(ang)
+
+            angles.sort()
+            diffs = [
+                abs(angles[1] - angles[0]),
+                abs(angles[2] - angles[1]),
+                abs((angles[0] + 360) - angles[2])
+            ]
+
+            # If any angle gap is too small, we have a duplicate spoke
+            if min(diffs) < 40:
+                # Remove the worst-scoring spoke
+                worst_index = np.argmin(lines_scores)
+                lines.pop(worst_index)
+
+                # Recompute after removal
+                new_lines = normalize_lines(lines)
+                lines_scores = score_lines_by_angle(new_lines)
+
+                # Now infer the missing spoke
+                if len(lines) == 2:
+                    lines = infer_missing_spoke_from_two(lines)
+
+        # Final recompute before returning
+        new_lines = normalize_lines(lines)
+        lines_scores = score_lines_by_angle(new_lines)
+
+
+        #print(lines_scores)
+
+        """plot_debug(
+            img,
+            cx, cy,
+            green_list,
+            blue_list,
+            green_pts,
+            blue_pts,
+            lines
+        )"""
+
+        return lines, orientation
+
 
         return select_best_three_lines(green_pts, blue_pts, cx, cy)
 
@@ -1176,7 +1513,7 @@ def Detect_Merc_Center(img, Details=False, mode = "Default"):
             size_ok = centroid_size_ok(green_sizes[i], blue_sizes[i])
             # Compute slope (m)
             m = (By - Gy) / (Bx - Gx + 1e-6)
-            print("m =", (By - Gy) / (Bx - Gx))
+            #print("m =", (By - Gy) / (Bx - Gx))
 
             ALLOWED_SLOPE_RANGES = [
                 (4, 40),      # vertical-ish
@@ -1206,10 +1543,10 @@ def Detect_Merc_Center(img, Details=False, mode = "Default"):
                 validated_lines.append(("L" + str(i+1), (Gx, Gy, Bx, By)))
                 All_Lines.append(("L" + str(i+1), (Gx, Gy, Bx, By)))
             else:
-                print(f"[FILTER] Spoke {COLOR_LABELS.get(i, 'unknown')} rejected: "
-                    f"{'distance' if not dist_ok else 'slope'}")
+                #print(f"[FILTER] Spoke {COLOR_LABELS.get(i, 'unknown')} rejected: "
+                #    f"{'distance' if not dist_ok else 'slope'}")
                 All_Lines.append(("L" + str(i+1), (Gx, Gy, Bx, By)))
-                print("d, greensize, bluesize:", d, green_sizes[i], blue_sizes[i])
+                #print("d, greensize, bluesize:", d, green_sizes[i], blue_sizes[i])
 
 
 
@@ -1240,14 +1577,14 @@ def show_lines_on_crop(img, lines):
                 draw_line(m, b, color)
 
             plt.axis('off')
-            plt.show()
+            #plt.show()
 
 
 def get_center_from_spokes(lines):
 
     # Must have at least 2 spokes
     if len(lines) < 2:
-        print("Not enough spokes to compute intersection")
+        #print("Not enough spokes to compute intersection")
         return None, None
 
     # Extract first two spokes
@@ -1270,7 +1607,7 @@ def get_center_from_spokes(lines):
     # Handle vertical + vertical (parallel)
     # Handle vertical + vertical (parallel)
     if m1 is None and m2 is None:
-        print("Both spokes are vertical — no intersection")
+        #print("Both spokes are vertical — no intersection")
         return None
 
 
@@ -1288,7 +1625,7 @@ def get_center_from_spokes(lines):
 
     # Parallel non-vertical
     if m1 == m2:
-        print("Spokes are parallel — no intersection")
+        #print("Spokes are parallel — no intersection")
         return None
 
 
@@ -1565,7 +1902,7 @@ def infer_missing_spoke_from_two(lines, img=None):
     """
 
     if len(lines) != 2:
-        print("infer_missing_spoke_from_two: requires exactly 2 spokes")
+        #print("infer_missing_spoke_from_two: requires exactly 2 spokes")
         return lines
 
     # -------------------------------
@@ -1579,7 +1916,7 @@ def infer_missing_spoke_from_two(lines, img=None):
     # -------------------------------
     hub = get_center_from_spokes(lines)
     if hub is None or hub == (None, None):
-        print("infer_missing_spoke_from_two: could not compute hub")
+        #print("infer_missing_spoke_from_two: could not compute hub")
         return lines
 
     hx, hy = hub
