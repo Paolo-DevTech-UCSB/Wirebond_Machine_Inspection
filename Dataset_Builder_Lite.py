@@ -4,9 +4,14 @@ import Image_Processing_Tools as IPT
 from wb_config import RAW_DIR, PROCESSED_DIR
 import numpy as np
 from orientation_verification import verify_orientation
+import SetQuality_Checker
 
 
 def Main_Process(Current_Module, Image_Name):
+    Current_Module = Current_Module 
+    Image_Name = Image_Name
+    lines = []   # <--- ADD THIS
+    orientation = "upright"  # safe default
     count2 = 0
     img = IPT.Load_Img(RAW_DIR, Current_Module, Image_Name)
     if img is None:
@@ -45,12 +50,18 @@ def Main_Process(Current_Module, Image_Name):
     else:
         heightbonus = 0
 
+    print("Crop bounds:", Left, Top, 600, 600 + heightbonus)
+
     
     Classification_Crop = IPT.Img_Crop(img, Left, Top, 600, 600 + heightbonus)
     #Classification_Crop.show()
     
-    Image_Type = IPT.Classify_Img(Classification_Crop, 0, 0)
-    #print("Image Name:", Image_Name, "Type:", Image_Type)
+    #SetQuality_Checker.debug_integral_bands(img)
+    if SetQuality_Checker.garbage_filter(img):
+        Image_Type = "Unprocessed"
+    else:
+        Image_Type = IPT.Classify_Img(Classification_Crop, 0, 0)
+
     #print(input("next..."))
     # tested: 
 
@@ -59,10 +70,14 @@ def Main_Process(Current_Module, Image_Name):
     if Image_Type == "Cal-dot":
         #center on combined gold and sensor
         Processed_Center_X, Processed_Center_Y, count = IPT.compute_combined_com(Classification_Crop)
+        Processed_Center_X += Left
+        Processed_Center_Y += Top
         moreAbove = False
     elif Image_Type == "Guard-ring":    
         #center on Gold COM
         Processed_Center_X, Processed_Center_Y, count = IPT.compute_gold_com(Classification_Crop)
+        Processed_Center_X += Left
+        Processed_Center_Y += Top
         moreAbove = False
     elif Image_Type == "Default":
         #Center on Mercedes
@@ -86,34 +101,41 @@ def Main_Process(Current_Module, Image_Name):
             lines = IPT.find_other_spokes(X_1, X_2, Y_1, Y_2, Classification_Crop)
 
         elif len(lines) == 0:
-            print("COMPLETE DMC FAILURE, no spokes found")
-            return 0
+            print("COMPLETE DMC FAILURE, Save to Unprocessed folder for manual review")
+            saved_path = save_processed_image(Classification_Crop, "Unprocessed", Current_Module, Image_Name, False)
 
         #There needs to be a single line check, and a interspection finder based #1 and a fake.
         #IPT.show_lines_on_crop(Classification_Crop, lines)
 
-        Processed_Center_X, Processed_Center_Y = IPT.get_center_from_spokes(lines)
+
+        center = IPT.get_center_from_spokes(lines)
+        Processed_Center_X, Processed_Center_Y = center[0], center[1]
         #print("This is lines:", lines)
 
+        if Processed_Center_X is None or Processed_Center_Y is None:
+            print("DMC Failed: Saving to Unprocessed folder for manual review")
+            saved_path = save_processed_image(Classification_Crop, "Unprocessed", Current_Module, Image_Name, False)
+            Processed_Center_X = 0
+            Processed_Center_Y = 0
         Processed_Center_X += Left
         Processed_Center_Y += Top
         #print(lines)
         #print(type(lines[0]))
 
 
-        center = IPT.get_center_from_spokes(lines)
-        if center is None or center == (None, None):
-            print("DMC Failed: could not compute center from spokes")
-            Processed_Center_X = 0
-            Processed_Center_Y = 0
-        else:
-            Processed_Center_X, Processed_Center_Y = center
-            # Mercedes center is relative to Classification_Crop
-            # Translate to full image coordinates
-            Processed_Center_X = Processed_Center_X + Left
-            Processed_Center_Y = Processed_Center_Y + Top
+        
+
+        """Processed_Center_X, Processed_Center_Y = center
+        # Mercedes center is relative to Classification_Crop
+        # Translate to full image coordinates
+        Processed_Center_X = Processed_Center_X + Left
+        Processed_Center_Y = Processed_Center_Y + Top"""
 
 
+    elif Image_Type == "Unprocessed":
+        print("Photo Type: Unprocessed, skipping processing and saving to Unprocessed folder")
+        saved_path = save_processed_image(Classification_Crop, "Unprocessed", Current_Module, Image_Name, False)
+        return saved_path
     else:
         Processed_Center_X = 0; Processed_Center_Y = 0
         print("Photo Type:", Image_Type, "Not recognized")
@@ -150,35 +172,36 @@ def Main_Process(Current_Module, Image_Name):
         })
 
     #print("This is rays: ", rays)
-    
-    moreAbove = (orientation == "upside_down")
 
-    score = verify_orientation(Processed_Crop)
-    print(f"[DEBUG] Mercedes correlation score: {score:.3f}")
+    if Image_Type == "Default":      
+        moreAbove = (orientation == "upside_down")
+        score = verify_orientation(Processed_Crop)
+        print(f"[DEBUG] Mercedes correlation score: {score:.3f}")
+        score_upright = verify_orientation(Processed_Crop)
+        # Try flipped version
+        flipped = Processed_Crop.rotate(180)
+        score_flipped = verify_orientation(flipped)
+        # Pick whichever orientation matches the mask better
+        if score_flipped > score_upright:
+            print(f"[DEBUG] Flipped orientation chosen ({score_flipped:.3f} > {score_upright:.3f})")
+            Processed_Crop = flipped
+            moreAbove = False
+        else:
+            print(f"[DEBUG] Upright orientation chosen ({score_upright:.3f} >= {score_flipped:.3f})")
+            moreAbove = False  # because we are saving the corrected version
 
-
-    score_upright = verify_orientation(Processed_Crop)
-
-    # Try flipped version
-    flipped = Processed_Crop.rotate(180)
-    score_flipped = verify_orientation(flipped)
-
-    # Pick whichever orientation matches the mask better
-    if score_flipped > score_upright:
-        print(f"[DEBUG] Flipped orientation chosen ({score_flipped:.3f} > {score_upright:.3f})")
-        Processed_Crop = flipped
-        moreAbove = False
-    else:
-        print(f"[DEBUG] Upright orientation chosen ({score_upright:.3f} >= {score_flipped:.3f})")
-        moreAbove = False  # because we are saving the corrected version
-
-        # save again or overwrite
+            # save again or overwrite
 
 
-    saved_path = save_processed_image(Processed_Crop, Image_Type, Current_Module, Image_Name, moreAbove)
-    return saved_path
+        saved_path = save_processed_image(Processed_Crop, Image_Type, Current_Module, Image_Name, moreAbove)
+        return saved_path
+    elif Image_Type != "Unprocessed":
+        saved_path = save_processed_image(Processed_Crop, Image_Type, Current_Module, Image_Name, False)
+        return saved_path
+    else:  # Image_Type == "Unprocessed"
+        saved_path = save_processed_image(Processed_Crop, "Unprocessed", Current_Module, Image_Name, False)
+        return saved_path
 
-    
 def detect_orientation_by_dark_weight(img, cx, cy, threshold=150):
     width, height = img.size
     pixels = img.load()
@@ -262,7 +285,6 @@ def more_above2(rays):
             # draw the ray from the SAME anchor point
             p1 = I
             p2 = I + ray * 200
-
             plt.arrow(p1[0], p1[1],
                     ray[0]*200, ray[1]*200,
                     head_width=15, head_length=20,

@@ -488,6 +488,10 @@ def select_best_three_lines(green_pts, blue_pts, cx, cy):
 
 
 def refine_mercedes_lines(lines, cx, cy):
+    
+    if len(lines) != 3:
+        return lines  # or return None, depending on your logic tree
+
     """
     lines: list of 3 tuples in your format:
         [("L1", (Gx, Gy, Bx, By)), ...]
