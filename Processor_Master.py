@@ -1,4 +1,5 @@
 import Dataset_Builder_Lite
+import Default_Post_Cleanup as DPC
 
 
 #this will be the initial system separated from the NEW system. 
@@ -21,6 +22,7 @@ Dataset_Builder_Lite.Main_Controller()
 #     to do:
     # edit is_sensor_color and is_FR4_color to be more accurate
     # use the merc mask for default double cleanup. 
+DPC.Post_Default_Cleanup()
 
 #2. reclaim normal stepped holes from  Cal_dot, gaurd-ring, and unprocessed folders.
     # each will be unique, which helps with the pipline. 

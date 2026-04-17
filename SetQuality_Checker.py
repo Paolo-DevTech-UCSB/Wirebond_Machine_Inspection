@@ -380,10 +380,10 @@ def debug_integral_bands(img):
 
 def is_sensor_color(r, g, b):
     return (
-        100 <= r <= 185 and
-        165 <= g <= 240 and
-        215 <= b <= 255 and
-        b > g > r
+        70 <= r <= 190 and     # widened for new high-R samples
+        140 <= g <= 240 and    # widened for new high-G samples
+        180 <= b <= 255 and    # widened for new high-B samples
+        b > g > r              # preserve the strong channel ordering
     )
 
 
