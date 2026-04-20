@@ -1,3 +1,4 @@
+from ToDo_Manager import print_module_summary, save_checked_entry, load_checked_list, extract_raw_prefix, find_raw_image, ensure_folder, log_move, print_module_summary, init_module_summary
 from wb_config import RAW_DIR, PROCESSED_DIR
 from PIL import Image
 import os
@@ -9,51 +10,40 @@ import numpy as np
 
 import re
 
-
 def extract_raw_prefix(processed_filename):
-    """
-    Extracts the RAW coordinate tail from a processed filename.
-    Example:
-        320MHF2TDSB0091_118_119_138_processed.png → "118_119_138"
-    """
-
     base = os.path.splitext(processed_filename)[0]
     base = base.replace("_processed", "")
-
-    # Split by underscores
     parts = base.split("_")
 
-    # RAW coords are ALWAYS the last 3 numeric parts
-    raw_parts = []
+    # Collect numeric parts only
+    numeric = [p for p in parts if p.isdigit()]
 
-    # Walk backwards and collect numeric parts
-    for p in reversed(parts):
-        if p.isdigit():
-            raw_parts.append(p)
-            if len(raw_parts) == 3:
-                break
-        else:
-            break
-
-    if len(raw_parts) == 0:
+    # Require exactly 3 trailing numeric parts
+    if len(numeric) < 3:
         return None
 
-    # Reverse back to correct order
-    raw_parts.reverse()
+    prefix = "_".join(numeric[-3:])
 
-    return "_".join(raw_parts)
+    # Reject invalid prefixes like 0_0_0
+    if prefix == "0_0_0":
+        return None
 
+    return prefix
 
 def find_raw_image(module, raw_prefix, RAW_DIR):
-    """
-    Finds any RAW file in the module folder that starts with the extracted prefix.
-    """
     module_dir = os.path.join(RAW_DIR, module)
-
     if not os.path.exists(module_dir):
         return None
 
-    for f in os.listdir(module_dir):
+    files = sorted(os.listdir(module_dir))
+
+    # Prefer exact match
+    exact = raw_prefix + ".png"
+    if exact in files:
+        return os.path.join(module_dir, exact)
+
+    # Otherwise prefix match
+    for f in files:
         if f.startswith(raw_prefix):
             return os.path.join(module_dir, f)
 
@@ -62,99 +52,167 @@ def find_raw_image(module, raw_prefix, RAW_DIR):
 
 def Post_Default_Cleanup():
 
-    default_dir = os.path.join(PROCESSED_DIR, "Default")
+    DEFAULT_DIR = os.path.join(PROCESSED_DIR, "Default")
+    #UNPROCESSED_DIR = os.path.join(PROCESSED_DIR, "Unprocessed")
+    UNPROCESSED_DIR = os.path.join(PROCESSED_DIR, "Unprocessed")
 
-    if not os.path.exists(default_dir):
-        print("No Default folder found in PROCESSED_DIR")
+    TODOS_DIR = os.path.join(PROCESSED_DIR, "ToDos")
+
+    ensure_folder(UNPROCESSED_DIR)
+    ensure_folder(TODOS_DIR)
+
+    if not os.path.exists(DEFAULT_DIR):
+        print("No Default folder found.")
         return
 
     default_images = [
-        os.path.join(default_dir, f)
-        for f in os.listdir(default_dir)
+        f for f in os.listdir(DEFAULT_DIR)
         if f.lower().endswith(".png")
     ]
 
     print(f"Found {len(default_images)} Default images to check.")
 
-    for img_path in default_images:
+    #log
+    current_module = None
+    summary = None
 
+
+
+    for filename in default_images:
+        module = filename.split("_")[0]
+
+
+        # --------------------------------------------
+        # Detect module change and print previous summary
+        # --------------------------------------------
+        if module != current_module:
+            if summary is not None:
+                print_module_summary(current_module, summary)
+
+            summary = init_module_summary()
+            current_module = module
+
+
+        summary["checked"] += 1
+
+        img_path = os.path.join(DEFAULT_DIR, filename)
+
+        # --------------------------------------------
+        # Determine module name (everything before first "_")
+        # --------------------------------------------
+        module = filename.split("_")[0]
+
+        # --------------------------------------------
+        # Load per-module checked list
+        # --------------------------------------------
+        module_todo_dir = os.path.join(TODOS_DIR, module)
+        ensure_folder(module_todo_dir)
+
+        checked = load_checked_list(module_todo_dir)
+
+        # Skip if already processed
+        if filename in checked:
+            continue
+
+        # --------------------------------------------
+        # Try to open the processed image
+        # --------------------------------------------
         try:
             img = Image.open(img_path)
         except:
             print("Could not open:", img_path)
+            save_checked_entry(module_todo_dir, filename)
             continue
 
+        # --------------------------------------------
+        # Run sensor + FR4 ring detection
+        # --------------------------------------------
         ok = detect_sensor_with_fr4_ring(img)
 
         if ok:
-            print(f"[OK] Sensor + FR4 ring detected → {img_path}")
+            summary["ok"] += 1        # ← ADD THIS
+            print(f"[OK] Sensor + FR4 ring detected → {filename}")
+            save_checked_entry(module_todo_dir, filename)
             continue
 
-        # ---------------------------------------------------------
+        # --------------------------------------------
         # BAD IMAGE → REPROCESS
-        # ---------------------------------------------------------
-        print(f"[BAD] Missing sensor or FR4 ring → {img_path}")
+        # --------------------------------------------
+        print(f"[BAD] Missing sensor or FR4 ring → {filename}")
+        summary["bad"] += 1           # ← ADD THIS
 
-        filename = os.path.basename(img_path)
-
-        # Extract module name (everything before first underscore)
-        module = filename.split("_")[0]
-
-        # Extract RAW prefix from processed filename
+        # Extract RAW prefix
         raw_prefix = extract_raw_prefix(filename)
-
         if raw_prefix is None:
-            print("Could not extract RAW prefix from:", filename)
+            summary["raw_missing"] += 1   # ← ADD THIS
+            print("Could not extract RAW prefix:", filename)
+            save_checked_entry(module_todo_dir, filename)
             continue
 
-        # Find the RAW file
+        # Find RAW image
         raw_path = find_raw_image(module, raw_prefix, RAW_DIR)
-
         if raw_path is None:
-            print("RAW image not found:", os.path.join(RAW_DIR, module, raw_prefix + "*.png"))
+            summary["raw_missing"] += 1   # ← ADD THIS
+            print("RAW image not found for:", raw_prefix)
+            save_checked_entry(module_todo_dir, filename)
             continue
 
+        # Load RAW image
         raw_img = IPT.Load_Img(RAW_DIR, module, os.path.basename(raw_path))
 
-        # ---------------------------------------------------------
-        # 2. Re-run SetQuality Checker to get NEW center
-        # ---------------------------------------------------------
+        # --------------------------------------------
+        # Compute NEW center using SetQuality Checker
+        # --------------------------------------------
         results = SetQuality_Checker.debug_integral_bands(raw_img)
         new_cx, new_cy = results["weighted_peak_center"]
 
         if new_cx is None or new_cy is None:
-            print("Could not compute new center. Skipping.")
+            summary["center_fail"] += 1   # ← ADD THIS
+            print("Could not compute new center. Moving to Unprocessed.")
+            dst = os.path.join(UNPROCESSED_DIR, filename)
+            shutil.move(img_path, dst)
+            log_move(img_path, dst)
+            save_checked_entry(module_todo_dir, filename)
             continue
 
-        # ---------------------------------------------------------
-        # 3. Build a NEW classification crop
-        # ---------------------------------------------------------
+        # --------------------------------------------
+        # Build NEW crop around new center
+        # --------------------------------------------
         Left = new_cx - 300
         Top  = new_cy - 300
-
         new_crop = IPT.Img_Crop(raw_img, Left, Top, 600, 600)
 
-        # ---------------------------------------------------------
-        # 4. Re-classify the image
-        # ---------------------------------------------------------
+        # --------------------------------------------
+        # Re-classify the new crop
+        # --------------------------------------------
         new_class = IPT.Classify_Img(new_crop, 0, 0)
-
         print(f"Reclassified as: {new_class}")
 
-        # ---------------------------------------------------------
-        # 5. If class changed → move file to correct folder
-        # ---------------------------------------------------------
+        # --------------------------------------------
+        # Move file based on new classification
+        # --------------------------------------------
         if new_class != "Default":
+            # Move to correct classified folder
+            summary["reclassified"] += 1
             new_folder = os.path.join(PROCESSED_DIR, new_class)
-            os.makedirs(new_folder, exist_ok=True)
-
-            new_path = os.path.join(new_folder, filename)
-
-            print(f"Moving {filename} → {new_class}")
-            shutil.move(img_path, new_path)
-
         else:
-            print("Still Default after reprocessing. Leaving in place.")
+            summary["moved_unprocessed"] += 1   # ← ADD THIS
+            # Move to Unprocessed instead of leaving in Default
+            new_folder = UNPROCESSED_DIR
+
+        ensure_folder(new_folder)
+        dst = os.path.join(new_folder, filename)
+
+        shutil.move(img_path, dst)
+        log_move(img_path, dst)
+
+        # --------------------------------------------
+        # Mark as checked
+        # --------------------------------------------
+        save_checked_entry(module_todo_dir, filename)
+
+    if summary is not None:
+        print_module_summary(current_module, summary)
 
 
 

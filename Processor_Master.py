@@ -1,5 +1,9 @@
+from numpy import fix
+
 import Dataset_Builder_Lite
 import Default_Post_Cleanup as DPC
+import post_run_category_report
+
 
 
 #this will be the initial system separated from the NEW system. 
@@ -14,37 +18,45 @@ import Default_Post_Cleanup as DPC
 
 Dataset_Builder_Lite.Main_Controller()
 
-#At this point the dataset is built, the yeilds of different classes are good enough. 
-# Don't worry about the "unprocessed" and "gaurd-rings" and "cal-dots" for now, 
-# just make sure the "default" class gets a second look. 
+    #At this point the dataset is built, the yeilds of different classes are good enough. 
+    # Don't worry about the "unprocessed" and "gaurd-rings" and "cal-dots" for now, 
+    # just make sure the "default" class gets a second look. 
 
-#1. making it and its called default_post_cleanup.py
-#     to do:
-    # edit is_sensor_color and is_FR4_color to be more accurate
-    # use the merc mask for default double cleanup. 
+#Default folder gets up to 95% accuracy with current setup (4/20/26)
+
+
 DPC.Post_Default_Cleanup()
 
-#2. reclaim normal stepped holes from  Cal_dot, gaurd-ring, and unprocessed folders.
-    # each will be unique, which helps with the pipline. 
-    # for unprocessed, maybe try the color filter approach to reclaim strangly lit photos. 
+    #3 once default is 99% clean, start labeling and training the model.
 
-#3 once default is 99% clean, start labeling and training the model.
+#Default folder reached 98& accuracy with current setup (4/20/26)
 
+#last few bugs before tesnorflow:
+    #fix 0_0_0 names
+    #Need a location summary for the post cleanup, so we can see which modules are doing well and which are not.
 
+post_run_category_report.main()
 
-
-
-
-
-
-
-# make an image grader ( for the stepped holes )
-# this could include if theres a blue circle and green or gold around it in the right spots
-# + check the mercedes mask again ( use blue cneter this time ), is it upside down? 
-# 
+#bugs for after tesnor flow:
+    #1. default_post_cleanup.py  ----> use the merc mask for default double cleanup. 
+    #2. reclaim normal stepped holes from  Cal_dot, gaurd-ring, and unprocessed folders.
+        # each will be unique, which helps with the pipline. 
+        # for unprocessed, maybe try the color filter approach to reclaim strangly lit photos. 
+            ## chore: find the average color of the "good results"
 
 
-## chore: find the average color of the "good results"
+
+
+
+
+
+
+
+
+
+
+
+
 # result: if a "bad grade photo is a different average color, subtract that average difference from the rgb values in
 # a temporary inputs folder, and rerun a Main_controller (just with new input folder)
 # 

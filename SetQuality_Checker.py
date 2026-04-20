@@ -250,8 +250,8 @@ def debug_integral_bands(img):
     col_hist_raw = col_contiguity_hist(mask)
 
     # DEBUG: inspect overlap behavior
-    debug_overlap_cube_filter(row_hist_raw, shift=45)
-    debug_overlap_cube_filter(col_hist_raw, shift=45)
+    #debug_overlap_cube_filter(row_hist_raw, shift=45)
+    #debug_overlap_cube_filter(col_hist_raw, shift=45)
 
 
     # Overlap-cube filtering (returns f0, f+, f-, g)
@@ -358,7 +358,7 @@ def debug_integral_bands(img):
     axs[1,2].set_title("Column g(x) (cube-root compressed)")
 
     plt.tight_layout()
-    plt.show()
+    #plt.show()
 
 
     return {

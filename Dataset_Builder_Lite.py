@@ -367,17 +367,23 @@ def Main_Controller():
             for f in files:
                 processed_files.append(f)
 
+        # Load actual Unprocessed folder
+        unprocessed_folder = os.path.join(PROCESSED_DIR, "Unprocessed")
+        unprocessed_files = set(os.listdir(unprocessed_folder))
+
         unprocessed = []
 
         for raw in raw_files:
-            base = os.path.splitext(raw)[0]  # "1_13_14"
+            base = os.path.splitext(raw)[0]
             expected = f"{module_name}_{base}_processed.png"
 
-            if expected not in processed_files:
+            # FIX: also check Unprocessed folder
+            if expected not in processed_files and raw not in unprocessed_files:
                 unprocessed.append(raw)
 
         print("Unprocessed images for module", module_name, ":", unprocessed)
         return unprocessed
+
 
     def get_all_modules():
         return [
