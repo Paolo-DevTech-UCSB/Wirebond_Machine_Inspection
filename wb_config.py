@@ -1,18 +1,14 @@
 import os
 
-# Set this to your actual Windows username
-USER = "hep"
+# Find project root automatically
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_ROOT = r"C:\Users\hep\Desktop\Wirebond_Inspector"
 
-# Base folder on your Desktop where all PCB data lives
-DATA_ROOT = fr"C:\Users\{USER}\Desktop\Wirebond_Inspector"
-
-# Subfolders inside PCB_Data
 RAW_DIR = os.path.join(DATA_ROOT, "Raw Photos")
 PROCESSED_DIR = os.path.join(DATA_ROOT, "Processed Photos")
 LABEL_DIR = os.path.join(DATA_ROOT, "Labels")
 UNPROCESSED_DIR = os.path.join(DATA_ROOT, "Unprocessed")
 
-# Make sure the folders exist
 os.makedirs(RAW_DIR, exist_ok=True)
 os.makedirs(PROCESSED_DIR, exist_ok=True)
 os.makedirs(LABEL_DIR, exist_ok=True)

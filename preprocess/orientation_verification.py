@@ -4,7 +4,13 @@ import cv2
 import numpy as np
 from PIL import Image
 
-MERC_MASK = cv2.imread("WideMercMask2.png", cv2.IMREAD_GRAYSCALE)
+import os
+
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+MASK_PATH = os.path.join(CURRENT_DIR, "WideMercMask2.png")
+
+MERC_MASK = cv2.imread(MASK_PATH, cv2.IMREAD_GRAYSCALE)
+
 MERC_MASK = cv2.resize(MERC_MASK, (200, 200))
 
 def extract_mercedes_region(processed_img):

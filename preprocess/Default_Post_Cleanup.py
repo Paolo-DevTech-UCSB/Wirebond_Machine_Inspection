@@ -1,10 +1,10 @@
-from ToDo_Manager import print_module_summary, save_checked_entry, load_checked_list, extract_raw_prefix, find_raw_image, ensure_folder, log_move, print_module_summary, init_module_summary
+from preprocess.ToDo_Manager import print_module_summary, save_checked_entry, load_checked_list, extract_raw_prefix, find_raw_image, ensure_folder, log_move, print_module_summary, init_module_summary
 from wb_config import RAW_DIR, PROCESSED_DIR
 from PIL import Image
 import os
-import Image_Processing_Tools as IPT
+import preprocess.Image_Processing_Tools as IPT
 import shutil
-import SetQuality_Checker
+import preprocess.SetQuality_Checker as SetQuality_Checker
 import matplotlib.pyplot as plt
 import numpy as np
 

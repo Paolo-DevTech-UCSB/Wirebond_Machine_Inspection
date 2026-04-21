@@ -1,5 +1,7 @@
 import os
 from wb_config import PROCESSED_DIR
+print("Looking for Default folder at:", os.path.join(PROCESSED_DIR, "Default"))
+
 
 CATEGORIES = ["Default", "Guard-ring", "Cal-dot", "Unprocessed"]
 

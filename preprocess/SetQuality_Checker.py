@@ -1,6 +1,6 @@
 from PIL import Image, ImageDraw
 import os
-import Image_Processing_Tools as IPT
+import preprocess.Image_Processing_Tools as IPT
 import matplotlib.pyplot as plt
 import numpy as np
 

@@ -1,10 +1,10 @@
 from PIL import Image, ImageDraw
 import os
-import Image_Processing_Tools as IPT
+import preprocess.Image_Processing_Tools as IPT
 from wb_config import RAW_DIR, PROCESSED_DIR
 import numpy as np
-from orientation_verification import verify_orientation
-import SetQuality_Checker
+from preprocess.orientation_verification import verify_orientation
+import preprocess.SetQuality_Checker as SetQuality_Checker
 
 
 def Main_Process(Current_Module, Image_Name):
