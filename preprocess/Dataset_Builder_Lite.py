@@ -19,6 +19,11 @@ def Main_Process(Current_Module, Image_Name):
     Thin_Crop_Img = IPT.Img_Crop(img, 350, 350, 700, 850)
     x_center, y_center, count = IPT.compute_darks_com(Thin_Crop_Img)
 
+    if x_center is None or y_center is None:
+        Image_Type = "Unprocessed"
+        saved_path = save_processed_image(Thin_Crop_Img, "Unprocessed", Current_Module, Image_Name, False)
+        return saved_path
+
     if 500 < x_center < 1200 and 400 < y_center < 1000: Center_Tol = True
     else: Center_Tol = False
 
