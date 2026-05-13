@@ -1,12 +1,12 @@
 task: detect
 mode: train
-model: yolov8s.pt
-data: C:\TensorFlow_Datasets\Datasets\Dataset 3\project-4-at-2026-05-04-21-17-73cd1ce2\dataset.yaml
-epochs: 100
+model: yolov8n.pt
+data: C:\TensorFlow_Datasets\Datasets\Dataset_3_YOLO\dataset.yaml
+epochs: 10
 time: null
 patience: 100
 batch: 16
-imgsz: 640
+imgsz: 340
 save: true
 save_period: -1
 cache: false

@@ -1,3 +1,5 @@
+from importlib.resources import path
+
 from PIL import Image, ImageDraw
 import os
 import numpy as np
@@ -7,22 +9,22 @@ from wb_config import RAW_DIR
 #--------------------Cropper---------------------------
 
 def Img_Crop(Image, X_off, Y_off, Width, Height, Details = False):
-    cropped_img = Image.crop((X_off + 0 , Y_off + 0, X_off + Width , Y_off + Height))
+    cropped_img = Image.crop((X_off, Y_off, X_off + Width, Y_off + Height))
+
     if Details: cropped_img.show()
     cropped_img = cropped_img.convert("RGB")
     return cropped_img
 
 #--------------------Loader-----------------------------
 
-def Load_Img(RAW_DIR, Current_Module, Image_Name):
-    img_path = os.path.join(RAW_DIR, Current_Module, Image_Name)
+def Load_Img(path):
     try:
-        img = Image.open(img_path)
-        img.load()  # Force loading the image to catch any issues early
+        img = Image.open(path)
+        img.load()  # <-- forces decoding here
         return img
-    except Exception as e:
-        #print(f"[SKIP] Cannot open image {img_path}: {e}")
+    except Exception:
         return None
+
     
 #--------------------Color Range Helpers----------------------
 def is_sensor_color(r, g, b):

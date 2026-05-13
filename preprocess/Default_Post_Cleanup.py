@@ -1,5 +1,4 @@
 from preprocess.ToDo_Manager import print_module_summary, save_checked_entry, load_checked_list, extract_raw_prefix, find_raw_image, ensure_folder, log_move, print_module_summary, init_module_summary
-from wb_config import RAW_DIR, PROCESSED_DIR
 from PIL import Image
 import os
 import preprocess.Image_Processing_Tools as IPT
@@ -7,6 +6,8 @@ import shutil
 import preprocess.SetQuality_Checker as SetQuality_Checker
 import matplotlib.pyplot as plt
 import numpy as np
+from Folder_to_Report_config import CONFIG
+from preprocess.Folder_Builder import get_module_paths
 
 import re
 
@@ -52,167 +53,103 @@ def find_raw_image(module, raw_prefix, RAW_DIR):
 
 def Post_Default_Cleanup():
 
-    DEFAULT_DIR = os.path.join(PROCESSED_DIR, "Default")
-    #UNPROCESSED_DIR = os.path.join(PROCESSED_DIR, "Unprocessed")
-    UNPROCESSED_DIR = os.path.join(PROCESSED_DIR, "Unprocessed")
+    base = CONFIG["BASE_DIR"]
+    input_root = os.path.join(base, CONFIG["INPUT_DIR"])
+    processed_root = os.path.join(base, CONFIG["PROCESSED_DIR"])
 
-    TODOS_DIR = os.path.join(PROCESSED_DIR, "ToDos")
-
-    ensure_folder(UNPROCESSED_DIR)
-    ensure_folder(TODOS_DIR)
-
-    if not os.path.exists(DEFAULT_DIR):
-        print("No Default folder found.")
-        return
-
-    default_images = [
-        f for f in os.listdir(DEFAULT_DIR)
-        if f.lower().endswith(".png")
+    # Find all module folders in processed area
+    modules = [
+        d for d in os.listdir(processed_root)
+        if os.path.isdir(os.path.join(processed_root, d))
     ]
 
-    print(f"Found {len(default_images)} Default images to check.")
+    for module in modules:
 
-    #log
-    current_module = None
-    summary = None
+        print(f"\n=== Checking module: {module} ===")
 
+        # Get module-specific paths
+        module_input, module_output = get_module_paths(module)
 
+        DEFAULT_DIR = module_output["Default"]
+        UNPROCESSED_DIR = module_output["Unprocessed"]
 
-    for filename in default_images:
-        module = filename.split("_")[0]
+        # Module-local ToDos folder
+        TODOS_DIR = os.path.join(processed_root, module, "ToDos")
+        ensure_folder(TODOS_DIR)
 
+        # Load Default images for this module
+        default_images = [
+            f for f in os.listdir(DEFAULT_DIR)
+            if f.lower().endswith(".png")
+        ]
 
-        # --------------------------------------------
-        # Detect module change and print previous summary
-        # --------------------------------------------
-        if module != current_module:
-            if summary is not None:
-                print_module_summary(current_module, summary)
+        print(f"Found {len(default_images)} Default images to check.")
 
-            summary = init_module_summary()
-            current_module = module
+        summary = init_module_summary()
 
+        for filename in default_images:
 
-        summary["checked"] += 1
+            summary["checked"] += 1
 
-        img_path = os.path.join(DEFAULT_DIR, filename)
+            img_path = os.path.join(DEFAULT_DIR, filename)
 
-        # --------------------------------------------
-        # Determine module name (everything before first "_")
-        # --------------------------------------------
-        module = filename.split("_")[0]
+            # Load module-local checked list
+            checked = load_checked_list(TODOS_DIR)
+            if filename in checked:
+                continue
 
-        # --------------------------------------------
-        # Load per-module checked list
-        # --------------------------------------------
-        module_todo_dir = os.path.join(TODOS_DIR, module)
-        ensure_folder(module_todo_dir)
+            # Try to open processed image
+            try:
+                img = Image.open(img_path)
+                img.load()
+            except:
+                print("Could not open:", img_path)
+                save_checked_entry(TODOS_DIR, filename)
+                continue
 
-        checked = load_checked_list(module_todo_dir)
+            # Run FR4 + sensor detection
+            ok = detect_sensor_with_fr4_ring(img)
 
-        # Skip if already processed
-        if filename in checked:
-            continue
+            if ok:
+                summary["ok"] += 1
+                print(f"[OK] {filename}")
+                save_checked_entry(TODOS_DIR, filename)
+                continue
 
-        # --------------------------------------------
-        # Try to open the processed image
-        # --------------------------------------------
-        try:
-            img = Image.open(img_path)
-        except:
-            print("Could not open:", img_path)
-            save_checked_entry(module_todo_dir, filename)
-            continue
+            # BAD IMAGE → REPROCESS
+            print(f"[BAD] {filename}")
+            summary["bad"] += 1
 
-        # --------------------------------------------
-        # Run sensor + FR4 ring detection
-        # --------------------------------------------
-        ok = detect_sensor_with_fr4_ring(img)
+            # Extract RAW prefix
+            raw_prefix = extract_raw_prefix(filename)
+            if raw_prefix is None:
+                summary["raw_missing"] += 1
+                print("Could not extract RAW prefix:", filename)
+                save_checked_entry(TODOS_DIR, filename)
+                continue
 
-        if ok:
-            summary["ok"] += 1        # ← ADD THIS
-            print(f"[OK] Sensor + FR4 ring detected → {filename}")
-            save_checked_entry(module_todo_dir, filename)
-            continue
+            # Find RAW image in module-local input folder
+            raw_path = find_raw_image(module, raw_prefix, input_root)
+            if raw_path is None:
+                summary["raw_missing"] += 1
+                print("RAW image not found for:", raw_prefix)
+                save_checked_entry(TODOS_DIR, filename)
+                continue
 
-        # --------------------------------------------
-        # BAD IMAGE → REPROCESS
-        # --------------------------------------------
-        print(f"[BAD] Missing sensor or FR4 ring → {filename}")
-        summary["bad"] += 1           # ← ADD THIS
+            # Load RAW image
+            raw_img = IPT.Load_Img(raw_path)
+            if raw_img is None:
+                summary["raw_missing"] += 1
+                print("RAW image unreadable:", raw_path)
+                save_checked_entry(TODOS_DIR, filename)
+                continue
 
-        # Extract RAW prefix
-        raw_prefix = extract_raw_prefix(filename)
-        if raw_prefix is None:
-            summary["raw_missing"] += 1   # ← ADD THIS
-            print("Could not extract RAW prefix:", filename)
-            save_checked_entry(module_todo_dir, filename)
-            continue
+            # Compute new center
+            results = SetQuality_Checker.debug_integral_bands(raw_img)
+            new_cx, new_cy = results["weighted_peak_center"]
 
-        # Find RAW image
-        raw_path = find_raw_image(module, raw_prefix, RAW_DIR)
-        if raw_path is None:
-            summary["raw_missing"] += 1   # ← ADD THIS
-            print("RAW image not found for:", raw_prefix)
-            save_checked_entry(module_todo_dir, filename)
-            continue
-
-        # Load RAW image
-        raw_img = IPT.Load_Img(RAW_DIR, module, os.path.basename(raw_path))
-
-        # --------------------------------------------
-        # Compute NEW center using SetQuality Checker
-        # --------------------------------------------
-        results = SetQuality_Checker.debug_integral_bands(raw_img)
-        new_cx, new_cy = results["weighted_peak_center"]
-
-        if new_cx is None or new_cy is None:
-            summary["center_fail"] += 1   # ← ADD THIS
-            print("Could not compute new center. Moving to Unprocessed.")
-            dst = os.path.join(UNPROCESSED_DIR, filename)
-            shutil.move(img_path, dst)
-            log_move(img_path, dst)
-            save_checked_entry(module_todo_dir, filename)
-            continue
-
-        # --------------------------------------------
-        # Build NEW crop around new center
-        # --------------------------------------------
-        Left = new_cx - 300
-        Top  = new_cy - 300
-        new_crop = IPT.Img_Crop(raw_img, Left, Top, 600, 600)
-
-        # --------------------------------------------
-        # Re-classify the new crop
-        # --------------------------------------------
-        new_class = IPT.Classify_Img(new_crop, 0, 0)
-        print(f"Reclassified as: {new_class}")
-
-        # --------------------------------------------
-        # Move file based on new classification
-        # --------------------------------------------
-        if new_class != "Default":
-            # Move to correct classified folder
-            summary["reclassified"] += 1
-            new_folder = os.path.join(PROCESSED_DIR, new_class)
-        else:
-            summary["moved_unprocessed"] += 1   # ← ADD THIS
-            # Move to Unprocessed instead of leaving in Default
-            new_folder = UNPROCESSED_DIR
-
-        ensure_folder(new_folder)
-        dst = os.path.join(new_folder, filename)
-
-        shutil.move(img_path, dst)
-        log_move(img_path, dst)
-
-        # --------------------------------------------
-        # Mark as checked
-        # --------------------------------------------
-        save_checked_entry(module_todo_dir, filename)
-
-    if summary is not None:
-        print_module_summary(current_module, summary)
+            if new_cx is None or new_cy is None:
+                summary["center_fail"] += 1
 
 
 
