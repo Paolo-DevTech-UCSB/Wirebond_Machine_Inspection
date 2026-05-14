@@ -6,7 +6,7 @@ from collections import defaultdict
 # CONFIGURATION
 # ============================================================
 
-MODEL_PATH = r"C:\Users\hep\Documents\GitHub Forks\Wirebond_Inspector\Wirebond_Machine_Inspection\runs\detect\train-14\weights\best.ptt"
+MODEL_PATH = r"C:\Users\hep\Documents\GitHub Forks\Wirebond_Inspector\Wirebond_Machine_Inspection\runs\detect\train-5\weights\best.pt"
 DEFAULT_FOLDER = r"C:\Users\hep\Desktop\Wirebond_Inspector\Processed Photos\Default"
 OUTPUT_ROOT = r"C:\Users\hep\Desktop\Wirebond_Inspector\Module_Reports"
 
@@ -15,9 +15,9 @@ OUTPUT_ROOT = r"C:\Users\hep\Desktop\Wirebond_Inspector\Module_Reports"
 # ============================================================
 
 def get_module_id(filename):
-    # Module ID = first 15 characters of the filename (before extension)
+    """Module ID = first 15 characters of the filename (before extension)."""
     base = os.path.splitext(filename)[0]
-    return base[:15]  # first 15 chars
+    return base[:15]
 
 # ============================================================
 # MAIN TESTING FUNCTION
@@ -25,14 +25,6 @@ def get_module_id(filename):
 
 def test_module(model, module_id, image_paths, output_path):
     os.makedirs(output_path, exist_ok=True)
-
-    labelstudio_to_yolo = {
-        2: 1,  # debris
-        3: 3,  # tape_in_hole
-        4: 0,  # three_bonds
-        5: 4,  # disfigured_bond
-        6: 2   # missing_bond
-    }
 
     class_counts = defaultdict(int)
     image_results = {}
@@ -53,8 +45,7 @@ def test_module(model, module_id, image_paths, output_path):
         image_results[img_name] = len(detections)
 
         for box in detections:
-            raw_id = int(box.cls[0])
-            cls_id = labelstudio_to_yolo.get(raw_id, raw_id)
+            cls_id = int(box.cls[0])  # YOLO class ID directly
             class_counts[cls_id] += 1
 
         print(f"  {img_name}: {len(detections)} detections")
