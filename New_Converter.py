@@ -8,7 +8,7 @@ from shutil import copy2
 # CONFIGURATION
 # ============================================================
 
-YOLO_ROOT = r"C:\TensorFlow_Datasets\Datasets\Dataset_3_YOLO\project-4-at-2026-05-06-12-28-fa4103e0"
+YOLO_ROOT = r"C:\TensorFlow_Datasets\Datasets\Dataset_3_YOLO\project-4-at-2026-05-12-12-49-d169d524"
 SOURCE_IMAGES = r"C:\TensorFlow_Datasets\Source"
 
 OUTPUT = r"C:\TensorFlow_Datasets\Datasets\Dataset_3_YOLO"
