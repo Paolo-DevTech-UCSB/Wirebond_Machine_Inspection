@@ -37,4 +37,20 @@ into the default, caldot, unprocessed and gaurdring folders.
 
 Lets Streamline this into One Folder, One Repo. 
 
+----------------------------------------------
 
+Folder to Report (time):
+
+20 Minutes, 16 to Preprocess, 4 to Model Grading. 
+
+-I should remake processor master, need a "Fast" processor master. 
+
+that happened 
+
+But now its time to finish:  Fast_folder_to_Report.py
+
+- its still slow as hell, but also not reliable.  lets fix that
+-I was trying to get the post process in better shape. (thursday night)
+i think a better approach would be to improve the FIRST center detector and / or skip it for a default crop. 
+ 
+ running out of brain power.....     
