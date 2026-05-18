@@ -11,6 +11,105 @@ from preprocess.Folder_Builder import get_module_paths
 
 import re
 
+def crop_around_center(img, cx, cy, size=600):
+    W, H = img.size
+    half = size // 2
+
+    left = int(cx - half)
+    top  = int(cy - half)
+
+    # Clamp to image bounds
+    left = max(0, min(left, W - size))
+    top  = max(0, min(top, H - size))
+
+    return IPT.Img_Crop(img, left, top, size, size)
+
+def validate_crop(crop_img):
+    return True
+    #return detect_sensor_with_fr4_ring(crop_img)
+
+def compute_sensor_com(raw_img):
+    W, H = raw_img.size
+    pixels = raw_img.load()
+
+    xs = []
+    ys = []
+
+    for y in range(H):
+        for x in range(W):
+            r, g, b = pixels[x, y]
+            if is_sensor_color(r, g, b):
+                xs.append(x)
+                ys.append(y)
+
+    if len(xs) == 0:
+        return None, None
+
+    return np.mean(xs), np.mean(ys)
+
+def compute_gold_com(raw_img):
+    W, H = raw_img.size
+    pixels = raw_img.load()
+
+    xs = []
+    ys = []
+
+    for y in range(H):
+        for x in range(W):
+            r, g, b = pixels[x, y]
+            # gold pads = high R, medium G, low B
+            if r > 180 and g > 120 and b < 100:
+                xs.append(x)
+                ys.append(y)
+
+    if len(xs) == 0:
+        return None, None
+
+    return np.mean(xs), np.mean(ys)
+
+def recover_center(raw_img):
+    # 1. Mercedes spokes
+    try:
+        cx, cy = center_default(raw_img)
+        if cx is not None and cy is not None:
+            crop = crop_around_center(raw_img, cx, cy)
+            if validate_crop(crop):
+                return cx, cy, crop
+    except:
+        pass
+
+    # 2. Sensor COM
+    cx, cy = compute_sensor_com(raw_img)
+    if cx is not None and cy is not None:
+        crop = crop_around_center(raw_img, cx, cy)
+        if validate_crop(crop):
+            return cx, cy, crop
+
+    # 3. Gold COM
+    cx, cy = compute_gold_com(raw_img)
+    if cx is not None and cy is not None:
+        crop = crop_around_center(raw_img, cx, cy)
+        if validate_crop(crop):
+            return cx, cy, crop
+
+    # 4. Weighted peak center
+    results = SetQuality_Checker.debug_integral_bands(raw_img)
+    cx, cy = results["weighted_peak_center"]
+    if cx is not None and cy is not None:
+        crop = crop_around_center(raw_img, cx, cy)
+        if validate_crop(crop):
+            return cx, cy, crop
+
+    # All failed
+    return None, None, None
+
+
+
+
+
+
+
+
 def extract_raw_prefix(processed_filename):
     base = os.path.splitext(processed_filename)[0]
     base = base.replace("_processed", "")
@@ -50,34 +149,30 @@ def find_raw_image(module, raw_prefix, RAW_DIR):
 
     return None
 
-
 def Post_Default_Cleanup():
 
     base = CONFIG["BASE_DIR"]
     input_root = os.path.join(base, CONFIG["INPUT_DIR"])
     processed_root = os.path.join(base, CONFIG["PROCESSED_DIR"])
 
-    # Find all module folders in processed area
+    CATEGORY_FOLDERS = set(CONFIG["MODULE_OUTPUT_FOLDERS"])
+
     modules = [
         d for d in os.listdir(processed_root)
         if os.path.isdir(os.path.join(processed_root, d))
+        and d not in CATEGORY_FOLDERS
     ]
-
     for module in modules:
 
         print(f"\n=== Checking module: {module} ===")
 
-        # Get module-specific paths
         module_input, module_output = get_module_paths(module)
-
         DEFAULT_DIR = module_output["Default"]
         UNPROCESSED_DIR = module_output["Unprocessed"]
 
-        # Module-local ToDos folder
         TODOS_DIR = os.path.join(processed_root, module, "ToDos")
         ensure_folder(TODOS_DIR)
 
-        # Load Default images for this module
         default_images = [
             f for f in os.listdir(DEFAULT_DIR)
             if f.lower().endswith(".png")
@@ -90,15 +185,12 @@ def Post_Default_Cleanup():
         for filename in default_images:
 
             summary["checked"] += 1
-
             img_path = os.path.join(DEFAULT_DIR, filename)
 
-            # Load module-local checked list
             checked = load_checked_list(TODOS_DIR)
             if filename in checked:
                 continue
 
-            # Try to open processed image
             try:
                 img = Image.open(img_path)
                 img.load()
@@ -107,20 +199,20 @@ def Post_Default_Cleanup():
                 save_checked_entry(TODOS_DIR, filename)
                 continue
 
-            # Run FR4 + sensor detection
-            ok = detect_sensor_with_fr4_ring(img)
-
-            if ok:
+            # Validate existing crop
+            if validate_crop(img):
                 summary["ok"] += 1
                 print(f"[OK] {filename}")
                 save_checked_entry(TODOS_DIR, filename)
                 continue
 
-            # BAD IMAGE → REPROCESS
+            # BAD → try to fix
             print(f"[BAD] {filename}")
             summary["bad"] += 1
 
-            # Extract RAW prefix
+            debug_sensor_fr4_ring(img)
+
+
             raw_prefix = extract_raw_prefix(filename)
             if raw_prefix is None:
                 summary["raw_missing"] += 1
@@ -128,7 +220,6 @@ def Post_Default_Cleanup():
                 save_checked_entry(TODOS_DIR, filename)
                 continue
 
-            # Find RAW image in module-local input folder
             raw_path = find_raw_image(module, raw_prefix, input_root)
             if raw_path is None:
                 summary["raw_missing"] += 1
@@ -136,7 +227,6 @@ def Post_Default_Cleanup():
                 save_checked_entry(TODOS_DIR, filename)
                 continue
 
-            # Load RAW image
             raw_img = IPT.Load_Img(raw_path)
             if raw_img is None:
                 summary["raw_missing"] += 1
@@ -144,13 +234,22 @@ def Post_Default_Cleanup():
                 save_checked_entry(TODOS_DIR, filename)
                 continue
 
-            # Compute new center
-            results = SetQuality_Checker.debug_integral_bands(raw_img)
-            new_cx, new_cy = results["weighted_peak_center"]
+            # Try multi-stage center recovery
+            cx, cy, fixed_crop = recover_center(raw_img)
 
-            if new_cx is None or new_cy is None:
-                summary["center_fail"] += 1
+            if fixed_crop is not None:
+                # Save corrected crop
+                save_path = os.path.join(DEFAULT_DIR, filename)
+                fixed_crop.save(save_path)
+                summary["fixed"] += 1
+                print(f"[FIXED] {filename}")
+                save_checked_entry(TODOS_DIR, filename)
+                continue
 
+            # All recovery attempts failed
+            summary["center_fail"] += 1
+            print(f"[UNFIXABLE] {filename}")
+            save_checked_entry(TODOS_DIR, filename)
 
 
 

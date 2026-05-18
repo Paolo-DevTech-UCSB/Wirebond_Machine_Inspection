@@ -185,7 +185,8 @@ def init_module_summary():
         "raw_missing": 0,
         "center_fail": 0,
         "moved_unprocessed": 0,
-        "reclassified": 0
+        "reclassified": 0,
+        "fixed": 0
     }
 
 
