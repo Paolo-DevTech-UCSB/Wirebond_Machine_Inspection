@@ -14,34 +14,42 @@ from scipy.signal import find_peaks
 
 def compute_new_center(img, shift=45, k=5):
     """
-    Computes the NEW center using:
-      - sensor mask
-      - contiguity histograms
-      - overlap-cube filter
-      - peak detection
-      - weighted peak center (recommended)
+    Match debug_integral_bands:
+      - sensor_mask
+      - row/col contiguity histograms
+      - mass bands via find_mass_band
+      - COM inside those bands
+    The returned center == blue COM dot in debug_integral_bands.
     """
+    import numpy as np
 
+    # 1) Same mask as debug
     mask = sensor_mask(img)
 
-    # Raw histograms
+    # 2) Same raw histograms as debug
     row_hist_raw = row_contiguity_hist(mask)
     col_hist_raw = col_contiguity_hist(mask)
 
-    # Overlap-cube filtering
-    _, _, _, row_g_raw, _ = overlap_cube_filter(row_hist_raw, shift=shift)
-    _, _, _, col_g_raw, _ = overlap_cube_filter(col_hist_raw, shift=shift)
+    # 3) Same mass bands as debug
+    y_low, y_high = find_mass_band(row_hist_raw)
+    x_low, x_high = find_mass_band(col_hist_raw)
 
-    # Peak detection
-    row_peaks, _, _ = find_filtered_peaks(row_g_raw)
-    col_peaks, _, _ = find_filtered_peaks(col_g_raw)
+    # 4) COM inside band (identical to debug_integral_bands)
+    band_mask = mask.copy()
+    band_mask[:y_low, :] = False
+    band_mask[y_high:, :] = False
+    band_mask[:, :x_low] = False
+    band_mask[:, x_high:] = False
 
-    # Weighted peak center (best stability)
-    cx = weighted_peak_center(col_g_raw, col_peaks, k=k)
-    cy = weighted_peak_center(row_g_raw, row_peaks, k=k)
+    ys, xs = np.where(band_mask)
+    if len(xs) == 0 or len(ys) == 0:
+        # no valid band -> signal failure
+        return None, None
 
-    return cx, cy
+    com_x = xs.mean()
+    com_y = ys.mean()
 
+    return com_x, com_y
 
 
 def debug_overlap_cube_filter(hist, shift=45, eps=0.0):
@@ -465,3 +473,16 @@ def garbage_filter(img, debug=True):
 
     return False
 
+
+
+def to_int_scalar(x):
+    # If it's a numpy array with one element
+    if hasattr(x, "__len__") and len(np.atleast_1d(x)) == 1:
+        return int(np.atleast_1d(x)[0])
+
+    # If it's a numpy array with multiple elements (take first)
+    if hasattr(x, "__len__") and len(np.atleast_1d(x)) > 1:
+        return int(np.atleast_1d(x)[0])
+
+    # If it's already a scalar
+    return int(x)

@@ -13,7 +13,8 @@ def Main_Process(Current_Module, Image_Name):
     lines = []   # <--- ADD THIS
     orientation = "upright"  # safe default
     count2 = 0
-    img = IPT.Load_Img(RAW_DIR, Current_Module, Image_Name)
+    full_path = os.path.join(RAW_DIR, Current_Module, Image_Name)
+    img = IPT.Load_Img(full_path)
     if img is None:
         return 
     Thin_Crop_Img = IPT.Img_Crop(img, 350, 350, 700, 850)

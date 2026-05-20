@@ -1,5 +1,4 @@
 from preprocess.ToDo_Manager import print_module_summary, save_checked_entry, load_checked_list, extract_raw_prefix, find_raw_image, ensure_folder, log_move, print_module_summary, init_module_summary
-from wb_config import RAW_DIR, PROCESSED_DIR
 from PIL import Image
 import os
 import preprocess.Image_Processing_Tools as IPT
@@ -7,8 +6,109 @@ import shutil
 import preprocess.SetQuality_Checker as SetQuality_Checker
 import matplotlib.pyplot as plt
 import numpy as np
+from Folder_to_Report_config import CONFIG
+from preprocess.Folder_Builder import get_module_paths
 
 import re
+
+def crop_around_center(img, cx, cy, size=600):
+    W, H = img.size
+    half = size // 2
+
+    left = int(cx - half)
+    top  = int(cy - half)
+
+    # Clamp to image bounds
+    left = max(0, min(left, W - size))
+    top  = max(0, min(top, H - size))
+
+    return IPT.Img_Crop(img, left, top, size, size)
+
+def validate_crop(crop_img):
+    return True
+    #return detect_sensor_with_fr4_ring(crop_img)
+
+def compute_sensor_com(raw_img):
+    W, H = raw_img.size
+    pixels = raw_img.load()
+
+    xs = []
+    ys = []
+
+    for y in range(H):
+        for x in range(W):
+            r, g, b = pixels[x, y]
+            if is_sensor_color(r, g, b):
+                xs.append(x)
+                ys.append(y)
+
+    if len(xs) == 0:
+        return None, None
+
+    return np.mean(xs), np.mean(ys)
+
+def compute_gold_com(raw_img):
+    W, H = raw_img.size
+    pixels = raw_img.load()
+
+    xs = []
+    ys = []
+
+    for y in range(H):
+        for x in range(W):
+            r, g, b = pixels[x, y]
+            # gold pads = high R, medium G, low B
+            if r > 180 and g > 120 and b < 100:
+                xs.append(x)
+                ys.append(y)
+
+    if len(xs) == 0:
+        return None, None
+
+    return np.mean(xs), np.mean(ys)
+
+def recover_center(raw_img):
+    # 1. Mercedes spokes
+    try:
+        cx, cy = center_default(raw_img)
+        if cx is not None and cy is not None:
+            crop = crop_around_center(raw_img, cx, cy)
+            if validate_crop(crop):
+                return cx, cy, crop
+    except:
+        pass
+
+    # 2. Sensor COM
+    cx, cy = compute_sensor_com(raw_img)
+    if cx is not None and cy is not None:
+        crop = crop_around_center(raw_img, cx, cy)
+        if validate_crop(crop):
+            return cx, cy, crop
+
+    # 3. Gold COM
+    cx, cy = compute_gold_com(raw_img)
+    if cx is not None and cy is not None:
+        crop = crop_around_center(raw_img, cx, cy)
+        if validate_crop(crop):
+            return cx, cy, crop
+
+    # 4. Weighted peak center
+    results = SetQuality_Checker.debug_integral_bands(raw_img)
+    cx, cy = results["weighted_peak_center"]
+    if cx is not None and cy is not None:
+        crop = crop_around_center(raw_img, cx, cy)
+        if validate_crop(crop):
+            return cx, cy, crop
+
+    # All failed
+    return None, None, None
+
+
+
+
+
+
+
 
 def extract_raw_prefix(processed_filename):
     base = os.path.splitext(processed_filename)[0]
@@ -49,171 +149,107 @@ def find_raw_image(module, raw_prefix, RAW_DIR):
 
     return None
 
-
 def Post_Default_Cleanup():
 
-    DEFAULT_DIR = os.path.join(PROCESSED_DIR, "Default")
-    #UNPROCESSED_DIR = os.path.join(PROCESSED_DIR, "Unprocessed")
-    UNPROCESSED_DIR = os.path.join(PROCESSED_DIR, "Unprocessed")
+    base = CONFIG["BASE_DIR"]
+    input_root = os.path.join(base, CONFIG["INPUT_DIR"])
+    processed_root = os.path.join(base, CONFIG["PROCESSED_DIR"])
 
-    TODOS_DIR = os.path.join(PROCESSED_DIR, "ToDos")
+    CATEGORY_FOLDERS = set(CONFIG["MODULE_OUTPUT_FOLDERS"])
 
-    ensure_folder(UNPROCESSED_DIR)
-    ensure_folder(TODOS_DIR)
-
-    if not os.path.exists(DEFAULT_DIR):
-        print("No Default folder found.")
-        return
-
-    default_images = [
-        f for f in os.listdir(DEFAULT_DIR)
-        if f.lower().endswith(".png")
+    modules = [
+        d for d in os.listdir(processed_root)
+        if os.path.isdir(os.path.join(processed_root, d))
+        and d not in CATEGORY_FOLDERS
     ]
+    for module in modules:
 
-    print(f"Found {len(default_images)} Default images to check.")
+        print(f"\n=== Checking module: {module} ===")
 
-    #log
-    current_module = None
-    summary = None
+        module_input, module_output = get_module_paths(module)
+        DEFAULT_DIR = module_output["Default"]
+        UNPROCESSED_DIR = module_output["Unprocessed"]
+
+        TODOS_DIR = os.path.join(processed_root, module, "ToDos")
+        ensure_folder(TODOS_DIR)
+
+        default_images = [
+            f for f in os.listdir(DEFAULT_DIR)
+            if f.lower().endswith(".png")
+        ]
+
+        print(f"Found {len(default_images)} Default images to check.")
+
+        summary = init_module_summary()
+
+        for filename in default_images:
+
+            summary["checked"] += 1
+            img_path = os.path.join(DEFAULT_DIR, filename)
+
+            checked = load_checked_list(TODOS_DIR)
+            if filename in checked:
+                continue
+
+            try:
+                img = Image.open(img_path)
+                img.load()
+            except:
+                print("Could not open:", img_path)
+                save_checked_entry(TODOS_DIR, filename)
+                continue
+
+            # Validate existing crop
+            if validate_crop(img):
+                summary["ok"] += 1
+                print(f"[OK] {filename}")
+                save_checked_entry(TODOS_DIR, filename)
+                continue
+
+            # BAD → try to fix
+            print(f"[BAD] {filename}")
+            summary["bad"] += 1
+
+            debug_sensor_fr4_ring(img)
 
 
+            raw_prefix = extract_raw_prefix(filename)
+            if raw_prefix is None:
+                summary["raw_missing"] += 1
+                print("Could not extract RAW prefix:", filename)
+                save_checked_entry(TODOS_DIR, filename)
+                continue
 
-    for filename in default_images:
-        module = filename.split("_")[0]
+            raw_path = find_raw_image(module, raw_prefix, input_root)
+            if raw_path is None:
+                summary["raw_missing"] += 1
+                print("RAW image not found for:", raw_prefix)
+                save_checked_entry(TODOS_DIR, filename)
+                continue
 
+            raw_img = IPT.Load_Img(raw_path)
+            if raw_img is None:
+                summary["raw_missing"] += 1
+                print("RAW image unreadable:", raw_path)
+                save_checked_entry(TODOS_DIR, filename)
+                continue
 
-        # --------------------------------------------
-        # Detect module change and print previous summary
-        # --------------------------------------------
-        if module != current_module:
-            if summary is not None:
-                print_module_summary(current_module, summary)
+            # Try multi-stage center recovery
+            cx, cy, fixed_crop = recover_center(raw_img)
 
-            summary = init_module_summary()
-            current_module = module
+            if fixed_crop is not None:
+                # Save corrected crop
+                save_path = os.path.join(DEFAULT_DIR, filename)
+                fixed_crop.save(save_path)
+                summary["fixed"] += 1
+                print(f"[FIXED] {filename}")
+                save_checked_entry(TODOS_DIR, filename)
+                continue
 
-
-        summary["checked"] += 1
-
-        img_path = os.path.join(DEFAULT_DIR, filename)
-
-        # --------------------------------------------
-        # Determine module name (everything before first "_")
-        # --------------------------------------------
-        module = filename.split("_")[0]
-
-        # --------------------------------------------
-        # Load per-module checked list
-        # --------------------------------------------
-        module_todo_dir = os.path.join(TODOS_DIR, module)
-        ensure_folder(module_todo_dir)
-
-        checked = load_checked_list(module_todo_dir)
-
-        # Skip if already processed
-        if filename in checked:
-            continue
-
-        # --------------------------------------------
-        # Try to open the processed image
-        # --------------------------------------------
-        try:
-            img = Image.open(img_path)
-        except:
-            print("Could not open:", img_path)
-            save_checked_entry(module_todo_dir, filename)
-            continue
-
-        # --------------------------------------------
-        # Run sensor + FR4 ring detection
-        # --------------------------------------------
-        ok = detect_sensor_with_fr4_ring(img)
-
-        if ok:
-            summary["ok"] += 1        # ← ADD THIS
-            print(f"[OK] Sensor + FR4 ring detected → {filename}")
-            save_checked_entry(module_todo_dir, filename)
-            continue
-
-        # --------------------------------------------
-        # BAD IMAGE → REPROCESS
-        # --------------------------------------------
-        print(f"[BAD] Missing sensor or FR4 ring → {filename}")
-        summary["bad"] += 1           # ← ADD THIS
-
-        # Extract RAW prefix
-        raw_prefix = extract_raw_prefix(filename)
-        if raw_prefix is None:
-            summary["raw_missing"] += 1   # ← ADD THIS
-            print("Could not extract RAW prefix:", filename)
-            save_checked_entry(module_todo_dir, filename)
-            continue
-
-        # Find RAW image
-        raw_path = find_raw_image(module, raw_prefix, RAW_DIR)
-        if raw_path is None:
-            summary["raw_missing"] += 1   # ← ADD THIS
-            print("RAW image not found for:", raw_prefix)
-            save_checked_entry(module_todo_dir, filename)
-            continue
-
-        # Load RAW image
-        raw_img = IPT.Load_Img(RAW_DIR, module, os.path.basename(raw_path))
-
-        # --------------------------------------------
-        # Compute NEW center using SetQuality Checker
-        # --------------------------------------------
-        results = SetQuality_Checker.debug_integral_bands(raw_img)
-        new_cx, new_cy = results["weighted_peak_center"]
-
-        if new_cx is None or new_cy is None:
-            summary["center_fail"] += 1   # ← ADD THIS
-            print("Could not compute new center. Moving to Unprocessed.")
-            dst = os.path.join(UNPROCESSED_DIR, filename)
-            shutil.move(img_path, dst)
-            log_move(img_path, dst)
-            save_checked_entry(module_todo_dir, filename)
-            continue
-
-        # --------------------------------------------
-        # Build NEW crop around new center
-        # --------------------------------------------
-        Left = new_cx - 300
-        Top  = new_cy - 300
-        new_crop = IPT.Img_Crop(raw_img, Left, Top, 600, 600)
-
-        # --------------------------------------------
-        # Re-classify the new crop
-        # --------------------------------------------
-        new_class = IPT.Classify_Img(new_crop, 0, 0)
-        print(f"Reclassified as: {new_class}")
-
-        # --------------------------------------------
-        # Move file based on new classification
-        # --------------------------------------------
-        if new_class != "Default":
-            # Move to correct classified folder
-            summary["reclassified"] += 1
-            new_folder = os.path.join(PROCESSED_DIR, new_class)
-        else:
-            summary["moved_unprocessed"] += 1   # ← ADD THIS
-            # Move to Unprocessed instead of leaving in Default
-            new_folder = UNPROCESSED_DIR
-
-        ensure_folder(new_folder)
-        dst = os.path.join(new_folder, filename)
-
-        shutil.move(img_path, dst)
-        log_move(img_path, dst)
-
-        # --------------------------------------------
-        # Mark as checked
-        # --------------------------------------------
-        save_checked_entry(module_todo_dir, filename)
-
-    if summary is not None:
-        print_module_summary(current_module, summary)
-
+            # All recovery attempts failed
+            summary["center_fail"] += 1
+            print(f"[UNFIXABLE] {filename}")
+            save_checked_entry(TODOS_DIR, filename)
 
 
 
