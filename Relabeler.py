@@ -1,7 +1,7 @@
 import os
 import urllib.parse
 
-labels_dir = r"C:\TensorFlow_Datasets\Datasets\Dataset_3_YOLO\labels\val"
+labels_dir = r"C:\TensorFlow_Datasets\Datasets\Dataset_3_YOLO\labels\train"
 
 for label_file in os.listdir(labels_dir):
     if not label_file.endswith(".txt"):
