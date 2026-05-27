@@ -1,7 +1,10 @@
 import _tkinter as tk
+from logging import exception
 import os   
 from tkinter import font
 import tkinter as tk
+
+from matplotlib import lines
 
 basedir = r"C:\Users\hep\Desktop\Basic Inspector\Report Module Folders"
 report_dir = basedir
@@ -47,6 +50,128 @@ def read_first_module_status(current_module):
     except ValueError as e:
         #   print(f"[DEBUG] Failed to parse integers from line: {e}")
         return None
+
+#import os
+
+def Stamp_All_Complete(current_module, target_imgname):
+    reportlocation = os.path.join(basedir, current_module, "InspectionStatus.txt")
+    if not os.path.exists(reportlocation):
+        #print(f"[DEBUG] Status file missing: {status_path}")
+        return None
+
+    # 1. Read all lines
+    with open(reportlocation, 'r') as file:
+        lines = file.readlines()
+
+    updated_any = False
+
+    # 2. Rewrite file
+    with open(reportlocation, 'w') as file:
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line:
+                continue  # skip blank lines
+
+            parts = line.split(',')
+
+            # Guard against malformed lines
+            if len(parts) < 2:
+                file.write(line + '\n')
+                continue
+
+
+            if ' Reviewed' not in parts:
+                file.write(line + ', Reviewed\n')
+            else:
+                file.write(line + '\n')
+            updated_any = True
+
+
+    # Optional: let yourself know if nothing matched
+    # print("Updated:", updated_any)
+
+
+
+def Stamp_Image_Complete(current_module, target_imgname):
+    reportlocation = os.path.join(basedir, current_module, "InspectionStatus.txt")
+    if not os.path.exists(reportlocation):
+        #print(f"[DEBUG] Status file missing: {status_path}")
+        return None
+
+    # 1. Read all lines
+    with open(reportlocation, 'r') as file:
+        lines = file.readlines()
+
+    updated_any = False
+
+    # 2. Rewrite file
+    with open(reportlocation, 'w') as file:
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line:
+                continue  # skip blank lines
+
+            parts = line.split(',')
+
+            # Guard against malformed lines
+            if len(parts) < 2:
+                file.write(line + '\n')
+                continue
+
+            # DEBUG: see what we're matching
+            print("Checking line parts:", parts, "against target:", target_imgname)
+
+            if parts[1].replace(" ", "") == target_imgname:
+                #print("LINE PARTS:", parts, "TARGET:", target_imgname)
+                # Avoid double-stamping
+                if ' Reviewed' not in parts:
+                    file.write(line + ', Reviewed\n')
+                else:
+                    file.write(line + '\n')
+                updated_any = True
+            else:
+                file.write(line + '\n')
+
+    # Optional: let yourself know if nothing matched
+    # print("Updated:", updated_any)
+
+def Update_Indicator_Status():
+    #print("this is get img index return" , Get_Current_Img_Indx())
+    #print("Get_filename_from_Indx(current_module, Original_IDX)", Get_filename_from_Indx(Get_Current_Img_Indx(), current_module))
+    Original_IDX, Sorted_IDX = Get_Current_Img_Indx()
+    Filename = Get_filename_from_Indx(Original_IDX, current_module)
+    if Check_If_Image_Reviewed(current_module, Filename):
+        indicator.config(text="●", fg="Green", font=("Arial", 32, "bold"))
+        #print("this image is reviewed")
+        return  
+    else: 
+        indicator.config(text="●", fg="Red", font=("Arial", 32, "bold"))
+        #print("this image is not reviewed")
+        return
+
+def Check_If_Image_Reviewed(current_module, target_imgname):
+    Original_IDX, Sorted_IDX = Get_Current_Img_Indx()
+    #print("Checking if image is reviewed:", target_imgname, "at index", Original_IDX, Sorted_IDX)
+    reportlocation = os.path.join(basedir, current_module, "InspectionStatus.txt")
+    if not os.path.exists(reportlocation):
+        print(f"[DEBUG] Status file missing: {reportlocation}")
+        return False
+
+    with open(reportlocation, 'r') as file:
+        lines = file.readlines()
+
+    for i in range(len(lines)):
+        if i == Sorted_IDX + 1:  # +1 to account for header line
+            #print("Checking line:", Sorted_IDX + 1, "Content:", lines[i].strip())
+            line = lines[i].strip()
+            parts = line.split(',')
+            if len(parts) < 2:
+                continue
+            if parts[1].replace(" ", "") == target_imgname:
+                if 'Reviewed' in line:
+                    return True
+
+    return False
 
 def retrieve_image_grade(current_module, current_image_index):
     reportlocation = os.path.join(basedir, current_module, "module_report.txt")
@@ -133,6 +258,7 @@ def retrieve_image_grade(current_module, current_image_index):
 
     return score
 
+
 def Get_Highest_Scored_Image(current_module, line = 1):
     Module_Location = os.path.join(basedir, current_module)
     report_dir = os.path.join(Module_Location, "InspectionStatus.txt")
@@ -210,7 +336,7 @@ def Get_Indx_from_Filename(Filename, current_module):
 
 
 
-def Update_Inspection_Status(current_module):
+def Build_Inspection_Status(current_module):
     reportlocation = os.path.join(basedir, current_module, "InspectionStatus.txt")
 
     # Get all images
@@ -278,7 +404,7 @@ def Get_Current_Img_Indx():
     for line in lines[1:]:
         parts = line.strip().split(",")
         if parts[0].strip() == str(original_IDX):
-            return int(parts[3].strip())  # Return the sorted index
+            return int(parts[0].strip()), int(parts[3].strip())  # Return the image name and sorted index
     
 
     
@@ -350,7 +476,7 @@ List = Get_Module_Names()
 for module in List:
     if not os.path.exists(os.path.join(basedir, module, "InspectionStatus.txt")):
         #print(f"[DEBUG] Missing InspectionStatus.txt for module: {module}")
-        Update_Inspection_Status(module)
+        Build_Inspection_Status(module)
 
 root = tk.Tk()
 root.geometry("1000x800")
@@ -383,8 +509,7 @@ Img_Focus = tk.PhotoImage(file=first_image)
 labels = {
     (0,0): "Top Left",
     (2,0): "Bottom Left",
-    (2,1): "Bottom Center",
-    (2,2): "Bottom Right",
+    (2,1): "Bottom Center"
 }
 
 # --- TOP CENTER: Label that will show the selected module ---
@@ -408,10 +533,48 @@ ModList = Get_Module_Names()
 for module in ModList:
     listbox.insert(tk.END, module)
 
+def on_Mark_Reviewed(event):
+    Original_IDX, Sorted_IDX = Get_Current_Img_Indx()
+    current_image_name = Get_Highest_Scored_Image(current_module, Sorted_IDX+1)
+    #print("Marking current image as reviewed...", current_module, current_image_name)
+    Stamp_Image_Complete(current_module, current_image_name)
+    Update_Indicator_Status()
+
+    #Build_Inspection_Status(current_module)    
+
+def Mark_All_Reviewed(event):
+    Original_IDX, Sorted_IDX = Get_Current_Img_Indx()
+    current_image_name = Get_Highest_Scored_Image(current_module, Sorted_IDX+1)
+
+    #print("Marking current image as reviewed...", current_module, current_image_name)
+    Percentile = Check_Module_Percentage()
+    if Percentile is not None and Percentile >= 90:
+        print(f"Marking All Images as Reviewed... Percentile is 90% or above")
+
+        Stamp_All_Complete(current_module, current_image_name)
+    else:
+        print("Mark All Locked... Percentile is below 90%")
+    Update_Indicator_Status()
+
+    #Build_Inspection_Status(current_module) 
+
+def Check_Module_Percentage():
+    #currently returning original index, not sorted index. Need to change this to sorted index for it to work with the next image button properly
+    text = Failure_Percentile_Label.cget("text")          # e.g. "ModuleA — Image 12"
+    try:
+        text.split("Failure Percentile: ")[1].replace("%", "")
+        percentile = float(text.split("Failure Percentile: ")[1].replace("%", ""))
+        return percentile
+    except (IndexError, ValueError):
+        print("cant parse percentile from label, returning none")
+        return None
+
+
 def on_Next_Image_Select(event):
     images = Get_Module_Images(current_module)
-    current_image_index = Get_Current_Img_Indx()
-    print(f"Clicked: {current_image_index}")
+    original_IDX, Sorted_IDX = Get_Current_Img_Indx()
+    current_image_index = Sorted_IDX
+    #print(f"Clicked: {current_image_index}")
 
     #print("DEBUG CURRENT IMAGE INDEX", current_image_index, type(current_image_index))
     #print("on 371 currentmodule = ", current_module, "Img_Name = ", Get_Highest_Scored_Image(current_module, current_image_index+1))
@@ -419,10 +582,21 @@ def on_Next_Image_Select(event):
     #current_image_index = Graded_IDX
     #if current_image_index >= len(images):
     #    current_image_index = 0  # Loop back to the first image
+    #try:
+    current_image_index + 2
+    #print("this is the index of the next image:", current_image_index + 2)
+    #except Exception as e:
+    #    #print(f"[DEBUG] Error: {e}")
+
+    if type(current_image_index) != int:
+        #print(f"[DEBUG] current_image_index is not an integer: {current_image_index}")
+        return
+
     Update_Images(current_module, current_image_index+2)
-    Update_Failure_Percentile(Get_Highest_Scored_Image(current_module, current_image_index+2))
+    New_Update_Failure_Percentile(Get_Highest_Scored_Image(current_module, current_image_index+2))
     Update_Title(Get_Highest_Scored_Image(current_module, current_image_index+2))
-    print(f"Updated: {current_image_index}")
+    Update_Indicator_Status()
+    #print(f"Updated: {current_image_index}")
 
 def on_module_select(event):
     global current_module, current_image_index
@@ -438,7 +612,8 @@ def on_module_select(event):
 
     Update_Title(Current_Img_Name)
     Update_Images(current_module, current_image_index)
-    Update_Failure_Percentile(Current_Img_Name) 
+    New_Update_Failure_Percentile(Current_Img_Name) 
+    Update_Indicator_Status()
 
 def Update_Title(Img_Name):
     if current_module is None:
@@ -461,7 +636,7 @@ def Update_Title(Img_Name):
     imgName = Get_filename_from_Indx(Img_Name, current_module)
     filename_label.config(text=Img_Name)
 
-def Update_Failure_Percentile(Img_Name):
+"""def Update_Failure_Percentile(Img_Name):
     if current_module is None:
         return
     isLess = 0
@@ -474,6 +649,8 @@ def Update_Failure_Percentile(Img_Name):
 
     #print("control score inputs, " , Graded_IDX, current_module)
     Control_Score = Get_Score_From_Image(current_module, Graded_IDX)
+
+    Denominator = 0
 
     #print("Debug:", len(images), "images found for module", current_module)
     for i in range(len(images)-1):
@@ -497,13 +674,90 @@ def Update_Failure_Percentile(Img_Name):
         text=f"Failure Percentile: {percentile:.1f}%"
     )
     #print("this is is less:", isLess)
+"""
+
+def New_Update_Failure_Percentile(Img_Name):
+    if current_module is None:
+        return
+    isLess = 0
+
+    images = Get_Module_Images(current_module)
+    
+    #print("on 424 currentmodule = ", current_module, "Img_Name = ", Img_Name)
+    Original_IDX, Graded_IDX = Get_Indx_from_Filename(Img_Name, current_module)  
+    #print("this is the image index of the focus image:", Original_IDX)
+
+    #print("control score inputs, " , Graded_IDX, current_module)
+    Control_Score = Get_Score_From_Image(current_module, Graded_IDX)
+
+
+    Denominator = 0
+    Numerator = 0
+
+    #print("Debug:", len(images), "images found for module", current_module)
+    for i in range(len(images)-1):
+        if i >= len(images):
+            print(f"[DEBUG] Image index {i} out of range for images list with length {len(images)}")
+        else:#print (f"Getidx from filename inputs:  {current_module}{i+1}...")
+            Denominator += Get_Score_From_Image(current_module, i+1)
+
+            if i <= Graded_IDX:
+                Numerator += Get_Score_From_Image(current_module, i+1)
+
+
+        
+    print("This is denominator: ", Denominator) 
+    print("this is numerator: ", Numerator)   
+    #print (f"{isLess} is the number of modules that are less than the focus image score of {Control_Score}")
+
+    # Calculate percentile
+    total_images = len(images)
+    
+    percentile = (Numerator / Denominator if Denominator > 0 else 0) * 100   
+
+    #print("this is the percentile:", percentile,"=", isLess, "over", total_images)
+
+    Failure_Percentile_Label.config(
+        text=f"Failure Percentile: {percentile:.1f}%"
+    )
+    print("this is is percentile:", percentile)
+
+
 
 listbox.bind("<<ListboxSelect>>", on_module_select)    
 
 # --- RIGHT SIDE: Button ---
-btn_right = tk.Button(root, text="Right Button")
+btn_right = tk.Button(root, text="NEXT IMAGE")
 btn_right.grid(row=1, column=2, sticky="nsew")
 btn_right.bind("<Button-1>", on_Next_Image_Select)
+
+# Create a container frame
+right_container = tk.Frame(root)
+right_container.grid(row=2, column=2, sticky="nsew")
+right_container.grid_rowconfigure(0, weight=1)
+right_container.grid_columnconfigure(0, weight=1)
+
+
+# Button
+btm_btn_right = tk.Button(right_container, text="Mark as Reviewed")
+btm_btn_right.grid(row=0, column=0, sticky="nsew")
+btm_btn_right.bind("<Button-1>", on_Mark_Reviewed)
+
+# Mark All Button
+Mark_All_Button = tk.Button(right_container, text="Mark All Reviewed")
+Mark_All_Button.grid(row=0, column=1, sticky="nsew")
+Mark_All_Button.bind("<Button-1>", Mark_All_Reviewed)
+
+
+
+#indicator Label
+Indicator_Label = tk.Label(right_container, text="Review Status:", font=("Arial", 14))
+Indicator_Label.grid(row=1, column=0, padx=5, sticky="e")
+
+# Indicator ITSELF
+indicator = tk.Label(right_container, text="●", fg="red")
+indicator.grid(row=1, column=1, padx=5)
+
 
 for (r, c), text in labels.items():
     tk.Label(root, text=text, bg="#e0e0e0").grid(row=r, column=c, sticky="nsew")
