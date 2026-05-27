@@ -407,14 +407,6 @@ def Get_Current_Img_Indx():
             return int(parts[0].strip()), int(parts[3].strip())  # Return the image name and sorted index
     
 
-    
-
-    
-
-
-
-
-
 def Update_Images(current_module, img_indx):
     #global current_image_index
     #current_image_index = img_indx
@@ -423,7 +415,7 @@ def Update_Images(current_module, img_indx):
 
     selected_module = current_module
     images = Get_Module_Images(selected_module)
-    Img_Name = Get_Highest_Scored_Image(selected_module)
+    Current_Img_Name = Get_Highest_Scored_Image(selected_module)
 
     #print(img_indx, type(img_indx))
 
@@ -432,7 +424,7 @@ def Update_Images(current_module, img_indx):
         img_label.config(image=new_image)
         img_label.image = new_image
 
-    Update_Title(Img_Name)   # <-- update title card
+    Update_Title(current_module, Current_Img_Name)   # <-- update title card
 
 
 def Reverse_Module_Position(images, focusimg):
@@ -469,6 +461,24 @@ def Get_Scored_Module_Images(module_name):
         grade = retrieve_image_grade(module_name, idx)
         scored_images.append((img, grade))
     return scored_images
+
+def Get_Module_Inspection_Completion(module_name):
+    reportlocation = os.path.join(basedir, module_name, "InspectionStatus.txt")
+    if not os.path.exists(reportlocation):
+        return None
+
+    with open(reportlocation, 'r') as file:
+        lines = file.readlines()
+
+    total_images = len(lines) - 1  # Exclude header
+    reviewed_images = sum(1 for line in lines[1:] if 'Reviewed' in line)
+
+    if total_images == 0:
+        return 0.0
+
+    completion_percentage = (reviewed_images / total_images) * 100
+    return completion_percentage
+
 
 
 #prelaucnh check
@@ -507,7 +517,6 @@ Img_Focus = tk.PhotoImage(file=first_image)
 
 # --- Surrounding labels ---
 labels = {
-    (0,0): "Top Left",
     (2,0): "Bottom Left",
     (2,1): "Bottom Center"
 }
@@ -530,8 +539,54 @@ listbox.grid(row=1, column=0, sticky="nsew")
 
 # Populate the listbox with module names
 ModList = Get_Module_Names()
+Listbox_Modules = []
 for module in ModList:
+    #get the completetion status of the whole module and add that to the end of the module name in the listbox
+    getting_completion = Get_Module_Inspection_Completion(module)
+    if getting_completion is not None:
+        module = f"{module} ({getting_completion:.1f}%)"
+
+    Listbox_Modules.append(module)
+
+#Listbox_Modules = sorted(Listbox_Modules)  # Sort alphabetically after adding completion percentages
+Listbox_Modules = sorted(
+    Listbox_Modules,
+    key=lambda x: (
+        float(x.split("(")[1].split("%")[0]),  # sort by percentage
+        x.lower()                              # then alphabetically
+    )
+)
+
+for module in Listbox_Modules:
     listbox.insert(tk.END, module)
+
+def on_Refresh_List(event):
+    print("Before: ", listbox.get(0, tk.END))
+    listbox.delete(0, tk.END)
+    # Populate the listbox with module names
+    ModList = Get_Module_Names()
+    Listbox_Modules = []
+    for module in ModList:
+        #get the completetion status of the whole module and add that to the end of the module name in the listbox
+        getting_completion = Get_Module_Inspection_Completion(module)
+        if getting_completion is not None:
+            module = f"{module} ({getting_completion:.1f}%)"
+
+        Listbox_Modules.append(module)
+
+    #Listbox_Modules = sorted(Listbox_Modules)  # Sort alphabetically after adding completion percentages
+    Listbox_Modules = sorted(
+        Listbox_Modules,
+        key=lambda x: (
+            float(x.split("(")[1].split("%")[0]),  # sort by percentage
+            x.lower()                              # then alphabetically
+        )
+    )
+
+    for module in Listbox_Modules:
+        listbox.insert(tk.END, module)
+
+    print("After: ", listbox.get(0, tk.END))
 
 def on_Mark_Reviewed(event):
     Original_IDX, Sorted_IDX = Get_Current_Img_Indx()
@@ -594,7 +649,7 @@ def on_Next_Image_Select(event):
 
     Update_Images(current_module, current_image_index+2)
     New_Update_Failure_Percentile(Get_Highest_Scored_Image(current_module, current_image_index+2))
-    Update_Title(Get_Highest_Scored_Image(current_module, current_image_index+2))
+    Update_Title(current_module, Get_Highest_Scored_Image(current_module, current_image_index+2))
     Update_Indicator_Status()
     #print(f"Updated: {current_image_index}")
 
@@ -606,27 +661,34 @@ def on_module_select(event):
     if not selection:
         return
 
-    current_module = listbox.get(selection[0])
+    current_module = listbox.get(selection[0]).split(" (")[0]  # Remove completion percentage if present
+    
     Current_Img_Name = Get_Highest_Scored_Image(current_module, 1)
+    print("this current img name is tracebacking: ", Current_Img_Name, current_module)
     #print("this is current img name (after click )", Current_Img_Name)
 
-    Update_Title(Current_Img_Name)
+    Update_Title(current_module, Current_Img_Name)
     Update_Images(current_module, current_image_index)
     New_Update_Failure_Percentile(Current_Img_Name) 
     Update_Indicator_Status()
 
-def Update_Title(Img_Name):
+def Update_Title(current_module, Img_Name):
     if current_module is None:
         return
 
+    current_module = current_module.split(" (")[0]  # Remove completion percentage if present
     images = Get_Module_Images(current_module)
     #print(current_module, current_image_index)
     #print("This is Filename (line 334):", images[current_image_index].replace(basedir, "").replace(current_module, "").replace(f"\\\_", ""))
+    #print("This is the image name passed to update title:", Img_Name)
+    #print("This is the current module passed to update title:", current_module)
+    #print("this is len(images): ", len(images))
+    #print("this is current image index: ", current_image_index)
     filename = os.path.basename(images[current_image_index])
 
     #print(f"[DEBUG] Updating title: Module={current_module}, Image={filename}, Img_Name={Img_Name}")
 
-    #print("on 409 currentmodule = ", current_module, "Img_Name = ", Img_Name)
+    print("on 654 currentmodule = ", current_module, "Img_Name = ", Img_Name)
     Original_IDX, Graded_IDX = Get_Indx_from_Filename(Img_Name, current_module)
 
     top_label.config(
@@ -748,7 +810,9 @@ Mark_All_Button = tk.Button(right_container, text="Mark All Reviewed")
 Mark_All_Button.grid(row=0, column=1, sticky="nsew")
 Mark_All_Button.bind("<Button-1>", Mark_All_Reviewed)
 
-
+Refresh_List_Button = tk.Button(text="Refresh List")
+Refresh_List_Button.grid(row=0, column=0, sticky="nsew")
+Refresh_List_Button.bind("<Button-1>", on_Refresh_List)
 
 #indicator Label
 Indicator_Label = tk.Label(right_container, text="Review Status:", font=("Arial", 14))
