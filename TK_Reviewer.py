@@ -516,10 +516,7 @@ for c in range(3):
 Img_Focus = tk.PhotoImage(file=first_image)
 
 # --- Surrounding labels ---
-labels = {
-    (2,0): "Bottom Left",
-    (2,1): "Bottom Center"
-}
+
 
 # --- TOP CENTER: Label that will show the selected module ---
 title_font = font.Font(size=20, weight="bold")
@@ -624,6 +621,34 @@ def Check_Module_Percentage():
         print("cant parse percentile from label, returning none")
         return None
 
+def on_Last_Image_Select(event):
+    images = Get_Module_Images(current_module)
+    original_IDX, Sorted_IDX = Get_Current_Img_Indx()
+    current_image_index = Sorted_IDX
+    #print(f"Clicked: {current_image_index}")
+
+    #print("DEBUG CURRENT IMAGE INDEX", current_image_index, type(current_image_index))
+    #print("on 371 currentmodule = ", current_module, "Img_Name = ", Get_Highest_Scored_Image(current_module, current_image_index+1))
+    #Original_IDX, Graded_IDX = Get_Indx_from_Filename(Get_Highest_Scored_Image(current_module, current_image_index+1), current_module)
+    #current_image_index = Graded_IDX
+    #if current_image_index >= len(images):
+    #    current_image_index = 0  # Loop back to the first image
+    #try:
+    current_image_index + 0
+    #print("this is the index of the next image:", current_image_index + 2)
+    #except Exception as e:
+    #    #print(f"[DEBUG] Error: {e}")
+
+    if type(current_image_index) != int:
+        #print(f"[DEBUG] current_image_index is not an integer: {current_image_index}")
+        return
+
+    Update_Images(current_module, current_image_index+0)
+    New_Update_Failure_Percentile(Get_Highest_Scored_Image(current_module, current_image_index+0))
+    Update_Title(current_module, Get_Highest_Scored_Image(current_module, current_image_index+0))
+    Update_Indicator_Status()
+    #print(f"Updated: {current_image_index}")
+
 
 def on_Next_Image_Select(event):
     images = Get_Module_Images(current_module)
@@ -688,7 +713,7 @@ def Update_Title(current_module, Img_Name):
 
     #print(f"[DEBUG] Updating title: Module={current_module}, Image={filename}, Img_Name={Img_Name}")
 
-    print("on 654 currentmodule = ", current_module, "Img_Name = ", Img_Name)
+    #print("on 654 currentmodule = ", current_module, "Img_Name = ", Img_Name)
     Original_IDX, Graded_IDX = Get_Indx_from_Filename(Img_Name, current_module)
 
     top_label.config(
@@ -789,7 +814,7 @@ def New_Update_Failure_Percentile(Img_Name):
 listbox.bind("<<ListboxSelect>>", on_module_select)    
 
 # --- RIGHT SIDE: Button ---
-btn_right = tk.Button(root, text="NEXT IMAGE")
+btn_right = tk.Button(root, text="NEXT IMAGE -->")
 btn_right.grid(row=1, column=2, sticky="nsew")
 btn_right.bind("<Button-1>", on_Next_Image_Select)
 
@@ -810,6 +835,10 @@ Mark_All_Button = tk.Button(right_container, text="Mark All Reviewed")
 Mark_All_Button.grid(row=0, column=1, sticky="nsew")
 Mark_All_Button.bind("<Button-1>", Mark_All_Reviewed)
 
+Back_Button = tk.Button(text="<-- LAST IMAGE")
+Back_Button.grid(row=2, column=0, sticky="nsew")
+Back_Button.bind("<Button-1>", on_Last_Image_Select)
+
 Refresh_List_Button = tk.Button(text="Refresh List")
 Refresh_List_Button.grid(row=0, column=0, sticky="nsew")
 Refresh_List_Button.bind("<Button-1>", on_Refresh_List)
@@ -822,9 +851,35 @@ Indicator_Label.grid(row=1, column=0, padx=5, sticky="e")
 indicator = tk.Label(right_container, text="●", fg="red")
 indicator.grid(row=1, column=1, padx=5)
 
+# --- Timeline wrapper (uses GRID because root uses GRID) ---
+timeline_wrapper = tk.Frame(root)
+timeline_wrapper.grid(row=2, column=1, sticky="nsew")
 
-for (r, c), text in labels.items():
-    tk.Label(root, text=text, bg="#e0e0e0").grid(row=r, column=c, sticky="nsew")
+# --- Canvas + Scrollbar container (uses PACK inside wrapper) ---
+timeline_container = tk.Frame(timeline_wrapper)
+timeline_container.pack(fill="both", expand=False)
+
+canvas = tk.Canvas(timeline_container)
+canvas.pack(fill="both", expand=False)
+
+#h_scroll = tk.Scrollbar(timeline_container, orient="horizontal", command=canvas.xview)
+#h_scroll.pack(side="bottom", fill="x")
+
+#canvas.configure(xscrollcommand=h_scroll.set)
+
+#outer_frame = tk.Frame(canvas)
+#canvas.create_window((0, 0), window=outer_frame, anchor="nw")
+
+#def update_scroll_region(event=None):
+#    canvas.configure(scrollregion=canvas.bbox("all"))
+
+#outer_frame.bind("<Configure>", update_scroll_region)
+
+#----------------------------------
+
+
+#for (r, c), text in labels.items():
+#    tk.Label(root, text=text, bg="#e0e0e0").grid(row=r, column=c, sticky="nsew")
 
 # --- Center image ---
 img_label = tk.Label(root, image=Img_Focus)

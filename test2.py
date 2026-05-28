@@ -1,72 +1,60 @@
-import cv2
-import numpy as np
+import tkinter as tk
+import random
 
-# Load image
-img = cv2.imread(r"C:\Users\hep\Desktop\Basic Inspector\Input Module Folders\320MHF2TDSB0108\1_13_14.png")
+root = tk.Tk()
+root.geometry("800x100")
 
-# Crop off the top 350 pixels
-# Remove top 350, left 150, right 150
-crop = img[350:, 150:-150]
+# --- Canvas + Scrollbar container ---
+container = tk.Frame(root)
+container.pack(fill="both", expand=True)
 
+canvas = tk.Canvas(container, height=200)
+canvas.pack(side="top", fill="both", expand=True)
 
-# Convert to HSV
-hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+h_scroll = tk.Scrollbar(container, orient="horizontal", command=canvas.xview)
+h_scroll.pack(side="bottom", fill="x")
 
-# ---------------------------------------------------------
-# GREEN RANGE (expanded: dark → bright)
-# ---------------------------------------------------------
-# Dark green
-green_lower1 = np.array([35, 40, 20])
-green_upper1 = np.array([85, 255, 150])
+canvas.configure(xscrollcommand=h_scroll.set)
 
-# Bright green
-green_lower2 = np.array([35, 80, 150])
-green_upper2 = np.array([85, 255, 255])
+# --- Frame inside canvas ---
+outer_frame = tk.Frame(canvas)
+canvas.create_window((0, 0), window=outer_frame, anchor="nw")
 
-green_mask1 = cv2.inRange(hsv, green_lower1, green_upper1)
-green_mask2 = cv2.inRange(hsv, green_lower2, green_upper2)
-green_mask = cv2.bitwise_or(green_mask1, green_mask2)
+for i in range(300):
 
-# ---------------------------------------------------------
-# GOLD RANGE (expanded: bright → deep gold)
-# ---------------------------------------------------------
-# Bright gold (yellowish)
-gold_lower1 = np.array([15, 120, 150])
-gold_upper1 = np.array([35, 255, 255])
+    # cell wrapper with zero padding
+    cell = tk.Frame(outer_frame, padx=0, pady=0)
+    cell.grid(row=0, column=i, padx=1, pady=0)
 
-# Deeper gold (more orange)
-gold_lower2 = np.array([10, 100, 120])
-gold_upper2 = np.array([25, 255, 255])
+    # --- plot ON TOP ---
+    plot = tk.Canvas(
+        cell,
+        width=40,
+        height=50,
+        bg="white",
+        highlightthickness=0
+    )
+    plot.pack(padx=0, pady=0)
 
-gold_mask1 = cv2.inRange(hsv, gold_lower1, gold_upper1)
-gold_mask2 = cv2.inRange(hsv, gold_lower2, gold_upper2)
-gold_mask = cv2.bitwise_or(gold_mask1, gold_mask2)
+    h = random.randint(5, 45)
+    plot.create_rectangle(5, 50-h, 35, 50, fill="blue")
 
-# ---------------------------------------------------------
-# Combine green + gold → invert → keep everything else
-# ---------------------------------------------------------
-excluded_mask = cv2.bitwise_or(green_mask, gold_mask)
-keep_mask = cv2.bitwise_not(excluded_mask)
+    # --- button BELOW (tightest possible) ---
+    btn = tk.Button(
+        cell,
+        text=str(i),
+        width=4,
+        height=2,     # reduced height to remove bottom space
+        padx=0,
+        pady=0,
+        borderwidth=1
+    )
+    btn.pack(padx=0, pady=0)
 
-# Clean noise
-keep_mask = cv2.medianBlur(keep_mask, 5)
+# --- Update scroll region ---
+def update_scroll_region(event=None):
+    canvas.configure(scrollregion=canvas.bbox("all"))
 
-# ---------------------------------------------------------
-# Compute center of mass
-# ---------------------------------------------------------
-M = cv2.moments(keep_mask)
+outer_frame.bind("<Configure>", update_scroll_region)
 
-if M["m00"] != 0:
-    cx = int(M["m10"] / M["m00"])
-    cy = int(M["m01"] / M["m00"])
-    print("Center of Mass (NOT green/gold):", (cx, cy))
-
-    cv2.circle(crop, (cx, cy), 6, (0, 0, 255), -1)
-else:
-    print("No valid pixels found")
-
-cv2.imshow("Crop", crop)
-cv2.imshow("Mask (NOT green/gold)", keep_mask)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
-
+root.mainloop()

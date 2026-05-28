@@ -7,7 +7,7 @@ def main():
     # Train the model
     results = model.train(
         data=r"C:\TensorFlow_Datasets\Datasets\Dataset_3_YOLO\dataset.yaml",
-        epochs=80,
+        epochs=1,
         imgsz=340,
         batch=16,
         workers=4,
