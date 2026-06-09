@@ -6,7 +6,7 @@ import numpy as np
 from preprocess.orientation_verification import verify_orientation
 import preprocess.SetQuality_Checker as SetQuality_Checker
 from Folder_to_Report_config import CONFIG
-import os
+import re
 
 RAW_DIR = os.path.join(CONFIG["BASE_DIR"], CONFIG["INPUT_DIR"])
 PROCESSED_DIR = os.path.join(CONFIG["BASE_DIR"], CONFIG["PROCESSED_DIR"])
@@ -26,6 +26,37 @@ def classify_from_filename(Image_Name):
 
     count = len(numeric_parts)
 
+    Guard_Ring_IDs = {"Guard", "guard", "guardring", "Guard-ring", "guard-ring", "ring", "Ring"}
+    Cal_Dot_IDs = {"cal", "dot", "cal-dot", "Cal-dot", "Caldot", "Cal_dot"}
+    Notch_IDs = {"Notch", "notch"} 
+    
+    if any(id in Image_Name for id in Guard_Ring_IDs):
+        return "Guard-ring"
+    
+    if any(id in Image_Name for id in Cal_Dot_IDs):
+        return "Cal-dot"
+    
+    if any(id in Image_Name for id in Notch_IDs):
+        return "Notch"
+    
+    # Extract ALL numeric sequences from the filename
+    nums = {int(n) for n in re.findall(r"\d+", Image_Name)}
+
+    # Numeric ID sets (as integers)
+    Guard_Ring_IDs = {4, 309, 385, 441}
+    Cal_Dot_IDs    = {30, 36, 56, 88, 150, 157, 207, 268, 298, 381, 388, 412}
+    Notch_IDs      = set()   # empty for now
+
+    # If ANY numeric ID matches, classify immediately
+    #if nums & Guard_Ring_IDs:
+    #    return "Guard-ring"
+
+    #if nums & Cal_Dot_IDs:
+    #    return "Cal-dot"
+
+    #if nums & Notch_IDs:
+    #    return "Notch"
+
     # ------------------------------------------------------------
     # RULE 1 — Three REAL numeric IDs → DEFAULT
     # ------------------------------------------------------------
@@ -36,6 +67,16 @@ def classify_from_filename(Image_Name):
     # RULE 2 — One REAL numeric ID → Cal-dot or Guard-ring
     # ------------------------------------------------------------
     if count == 1:
+        # If ANY numeric ID matches, classify immediately
+        if nums & Guard_Ring_IDs:
+            return "Guard-ring"
+
+        if nums & Cal_Dot_IDs:
+            return "Cal-dot"
+
+        if nums & Notch_IDs:
+            return "Notch"
+
         return "Unknown"   # You can refine this later
 
     # ------------------------------------------------------------
@@ -78,16 +119,54 @@ def Main_Process(Current_Module, Raw_Image_Name, Module_Center=None):
     category = classify_from_filename(Raw_Image_Name)
     print(f"[INFO] Category from filename: {category}")
 
+    print("Image size (W,H):", img.size)
+    Mask = "mask isnt defined yet here copiolet :\)"
+    print("Mask size (H,W):", Mask)
+
+
     # ------------------------------------------------------------
     # STEP 3 — Run category-specific center finder
     # ------------------------------------------------------------
     if category == "Cal-dot":
         center_x, center_y = center_cal_dot(img)
+        #debug_show_center(img, center_x, center_y, title=f"{category} cd - center")
+        """"
+        #NEW BELOW THIS LINE ---- DELETE IF ISSUE
 
+        # Step 1 — run your existing center finder
+        cx0, cy0 = center_cal_dot(img)
+
+        # Step 2 — visualize the original center
+        debug_show_center(img, cx0, cy0, title=f"{category} original center")
+
+        # Step 3 — run iterative COM refinement
+        cx_refined, cy_refined = IPT.iterative_com_debug(img)
+
+        # Step 4 — visualize the refined center
+        debug_show_center(img, cx_refined, cy_refined, title=f"{category} refined center")
+
+        # Step 5 — choose which one to use
+        center_x, center_y = cx_refined, cy_refined
+        """
+        
     elif category == "Guard-ring":
         center_x, center_y = center_guard_ring(img)
+        #debug_show_center(img, center_x, center_y, title=f"{category} gr - center")
+
+        """
+        cx0, cy0 = center_guard_ring(img)
+        debug_show_center(img, cx0, cy0, title=f"{category} original center")
+
+        cx_refined, cy_refined = IPT.iterative_com_debug(img)
+        debug_show_center(img, cx_refined, cy_refined, title=f"{category} refined center")
+
+        center_x, center_y = cx_refined, cy_refined
+        """
+
 
     elif category == "Default":
+        
+
         #cx_blend, cy_blend = Module_Center
         if Module_Center is None:
             print(f"[WARN] Module center missing — falling back to per-image center")
@@ -110,8 +189,15 @@ def Main_Process(Current_Module, Raw_Image_Name, Module_Center=None):
         scale_y = (H_raw - 350) / 1200
         scale_x = W_raw / 1200
 
-        center_x = cx_blend * scale_x
-        center_y = cy_blend * scale_y + 350
+        center_x_raw = cx_blend * (1600 / 1200)
+        center_y_raw = cy_blend * (850 / 1200) + 350
+
+        center_x = int(center_x_raw)
+        center_y = int(center_y_raw)
+
+        print("[DEBUG] Module_Center passed into Main_Process:", Module_Center)
+        print("[DEBUG] After +350 adjustment:", center_x_raw, center_y_raw)
+
 
 
 
@@ -127,7 +213,10 @@ def Main_Process(Current_Module, Raw_Image_Name, Module_Center=None):
     print(f"[INFO] Center found at: ({center_x:.1f}, {center_y:.1f})")
 
 
-
+    print("[FINAL] crop image size:", img.size)
+    print("[FINAL] COM used:", center_x, center_y)
+    #print("[MASK] mask size:", mask.shape)
+    print("Mask is not defined yet here copiolet \:")
 
 
     # ------------------------------------------------------------
@@ -153,14 +242,71 @@ def Main_Process(Current_Module, Raw_Image_Name, Module_Center=None):
 
     return saved_path
 
-def center_cal_dot(img):
+"""def center_cal_dot(img):
     # crop or preprocess if needed
-    cx, cy, _ = IPT.compute_combined_com(img)
-    return cx, cy
+    #img.show()  # <-- DEBUG    #these include the Upper Ui Section
+
     
-def center_guard_ring(img):
-    cx, cy, _ = IPT.compute_gold_com(img)
+
+    img2 = img
+    img2 = img2.crop((0, 350, img.width, img.height))
+    #img2.show()
+    bx, by, _ = IPT.compute_combined_com(img2)
+    img2 = img2.crop((bx-300, by-300, bx+300, by+300))
+    #img2.show()  # <-- DEBUG    #these include the Upper Ui Section
+
+    Mask = IPT.compute_combined_mask(img2)
+    dx, dy, _ = IPT.compute_combined_com(img2)
+    maskprev = mask_to_preview(Mask, color=(0, 255, 0))
+    print("[DEBUG COM] mask size (H,W):", Mask.shape)
+
+
+
+    cx, cy, _ = IPT.compute_combined_com(img)
+    return cx, cy"""
+
+def center_cal_dot(img):
+    img2 = img.crop((0, 350, img.width, img.height))
+
+    cx, cy, _ = IPT.compute_combined_com(img2)
+
+    # convert cropped COM → full-image COM
+    cy += 350
+
     return cx, cy
+
+
+    
+"""def center_guard_ring(img):
+    #img.show()  # <-- DEBUG
+
+    img2 = img
+    img2 = img2.crop((0, 350, img.width, img.height))
+    #img2.show()
+    bx, by, _ = IPT.compute_combined_com(img2)
+
+    Mask = IPT.compute_combined_mask(img2)
+    print("[DEBUG COM] mask size (H,W):", Mask.shape)
+
+
+
+
+    cx, cy, _ = IPT.compute_gold_com(img)
+    return cx, cy"""
+
+def center_guard_ring(img):
+    # 1. Remove the UI bar (same as Cal-dot and Default)
+    img2 = img.crop((0, 350, img.width, img.height))
+
+    # 2. Compute COM on the clean region
+    cx, cy, _ = IPT.compute_gold_com(img2)
+
+    # 3. Convert back to full-image coordinates
+    cy += 350
+
+    return cx, cy
+
+
 
 def OLD_center_default(img):
     lines, orientation = IPT.Detect_Merc_Center(img, False, mode="Default")
@@ -307,6 +453,7 @@ def compute_module_center(module_name, unprocessed_list):
     # RUN NEW CENTER FINDER (THIS EXPECTS PIL)
     # ------------------------------------------------------------
     cx, cy = compute_new_center(compiled_pil)
+    debug_show_center(compiled_pil, cx, cy, title=f"Module {module_name} - Computed Center")
 
     if cx is None or cy is None:
         debug_integral_bands(compiled_pil)
@@ -322,7 +469,7 @@ def compute_module_center(module_name, unprocessed_list):
     # ------------------------------------------------------------
     # DRAW OVERLAY (THIS EXPECTS NUMPY)
     # ------------------------------------------------------------
-    show_module_center_debug(compiled, int(cx), int(cy), module_name)
+    #show_module_center_debug(compiled, int(cx), int(cy), module_name)
 
     print(f"[MODULE CENTER] {module_name}: ({cx}, {cy})")
     return (cx, cy)
@@ -457,11 +604,98 @@ def Main_Controller():
         # NEW: compute module-level center
         module_center = compute_module_center(module, unprocessed)
 
+        #This moduel center? 
 
         for img in unprocessed:
             processed_img = Main_Process(module, img, module_center)  
             print("Saved Photo:", processed_img)
 
-Main_Controller()
+#Main_Controller()
+import cv2
+import numpy as np
 
+def debug_show_center(img, cx, cy, box_size=600, title="Debug Center"):
+    """
+    Works with PIL or NumPy images.
+    Draws the detected center and crop box on the image and displays it.
+    """
 
+    # Convert PIL → NumPy if needed
+    if not isinstance(img, np.ndarray):
+        img = np.array(img)
+
+    debug = img.copy()
+    h, w = debug.shape[:2]
+
+    debug = cv2.cvtColor(debug, cv2.COLOR_RGB2BGR)
+
+    # Draw center point
+    cv2.circle(debug, (int(cx), int(cy)), 10, (0, 0, 255), -1)
+
+    # Draw crop rectangle
+    left = int(cx - box_size/2)
+    top  = int(cy - box_size/2)
+    right = left + box_size
+    bottom = top + box_size
+
+    cv2.rectangle(debug, (left, top), (right, bottom), (0, 255, 0), 3)
+
+    # Show window
+    cv2.imshow(title, debug)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+def show_image_with_vector(img, vec):
+    # vec is [x, y]
+    vx, vy = vec
+
+    # Compute center of the image
+    w, h = img.size
+    cx, cy = w // 2, h // 2
+
+    # Compute endpoint of the vector
+    end_x = cx + vx
+    end_y = cy + vy
+
+    # Draw the vector
+    img_copy = img.copy()
+    draw = ImageDraw.Draw(img_copy)
+    draw.line((cx, cy, end_x, end_y), fill="red", width=3)
+
+    # Show the result
+    img_copy.show()
+
+from PIL import Image
+
+def mask_to_preview(mask, color=(0, 255, 0)):
+    """
+    Converts a mask into a colored preview image.
+    - mask: PIL Image or numpy array
+    - color: RGB tuple for the mask overlay
+    """
+    # Ensure PIL Image
+    if not isinstance(mask, Image.Image):
+        mask = Image.fromarray(mask)
+
+    # Convert mask to grayscale if needed
+    mask = mask.convert("L")
+
+    # Normalize mask to 0–255
+    mask = mask.point(lambda p: 255 if p > 0 else 0)
+
+    # Create a colored version
+    preview = Image.new("RGB", mask.size, (0, 0, 0))
+    r, g, b = color
+
+    # Apply color only where mask is nonzero
+    preview_pixels = preview.load()
+    mask_pixels = mask.load()
+
+    w, h = mask.size
+    for y in range(h):
+        for x in range(w):
+            if mask_pixels[x, y] > 0:
+                preview_pixels[x, y] = (r, g, b)
+
+    preview.show()
+    return preview

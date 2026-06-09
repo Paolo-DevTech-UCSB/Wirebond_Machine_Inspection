@@ -697,6 +697,35 @@ def on_module_select(event):
     New_Update_Failure_Percentile(Current_Img_Name) 
     Update_Indicator_Status()
 
+    #Scroll Bar Section: 
+    # 1. Get the list of images for this module
+    images = Get_Module_Images(current_module)   # <-- your function
+
+    # 2. Store them globally or in your controller
+    global current_images
+    current_images = images
+    N = len(images)
+
+    # 3. Compute scroll width (100 px per image is a good baseline)
+    scroll_width = max(1, N * 100)
+
+    # 4. Redraw the blue bar to match the new scroll width
+    canvas.delete("all")
+    canvas.create_rectangle(0, 0, scroll_width, 20, fill="lightblue")
+
+    # 5. Update scrollregion to match content
+    canvas.configure(scrollregion=(0, 0, scroll_width, 20))
+
+    # 6. Reset the scrollbar to the start
+    canvas.xview_moveto(0)
+
+    # 7. Update the label to show the first image
+    scroll_pos_label.config(text=f"Image: 1 / {N}")
+    update_scroll_label()
+
+
+
+
 def Update_Title(current_module, Img_Name):
     if current_module is None:
         return
@@ -851,31 +880,95 @@ Indicator_Label.grid(row=1, column=0, padx=5, sticky="e")
 indicator = tk.Label(right_container, text="●", fg="red")
 indicator.grid(row=1, column=1, padx=5)
 
-# --- Timeline wrapper (uses GRID because root uses GRID) ---
-timeline_wrapper = tk.Frame(root)
-timeline_wrapper.grid(row=2, column=1, sticky="nsew")
+#_____________________________________________
 
-# --- Canvas + Scrollbar container (uses PACK inside wrapper) ---
-timeline_container = tk.Frame(timeline_wrapper)
-timeline_container.pack(fill="both", expand=False)
+# --- Bottom-middle frame (row 2, col 1) ---
+bottom_mid = tk.Frame(root, height=80)
+bottom_mid.grid(row=2, column=1, sticky="nsew")
+bottom_mid.grid_propagate(False)
 
-canvas = tk.Canvas(timeline_container)
-canvas.pack(fill="both", expand=False)
+# --- Label container that expands ---
+label_container = tk.Frame(bottom_mid)
+label_container.pack(fill="both", expand=True)
 
-#h_scroll = tk.Scrollbar(timeline_container, orient="horizontal", command=canvas.xview)
-#h_scroll.pack(side="bottom", fill="x")
+scroll_pos_label = tk.Label(label_container, text="Position: 0.0")
+scroll_pos_label.pack(pady=2)
 
-#canvas.configure(xscrollcommand=h_scroll.set)
+# --- Canvas stays fixed height ---
+canvas = tk.Canvas(bottom_mid, height=20, bg="white")
+canvas.pack(fill="x")
 
-#outer_frame = tk.Frame(canvas)
-#canvas.create_window((0, 0), window=outer_frame, anchor="nw")
+# --- Scrollbar stays at bottom ---
+hscroll = tk.Scrollbar(bottom_mid, orient="horizontal", command=canvas.xview)
+hscroll.pack(fill="x")
 
-#def update_scroll_region(event=None):
-#    canvas.configure(scrollregion=canvas.bbox("all"))
+canvas.configure(xscrollcommand=hscroll.set)
+canvas.create_rectangle(0, 0, 5000, 20, fill="lightblue")
+canvas.configure(scrollregion=(0, 0, 5000, 20))
 
-#outer_frame.bind("<Configure>", update_scroll_region)
+def map_scroll_to_images(images):
+    global current_images
+    current_images = images
+    N = len(images)
 
-#----------------------------------
+    # 1. Compute scrollable width based on number of images
+    #    (100 px per image is a nice starting point)
+    scroll_width = N * 100
+
+    # 2. Resize the blue bar to match scrollregion
+    canvas.delete("all")
+    canvas.create_rectangle(0, 0, scroll_width, 20, fill="lightblue")
+
+    # 3. Update scrollregion to match content
+    canvas.configure(scrollregion=(0, 0, scroll_width, 20))
+
+    # 4. Update label immediately
+    update_scroll_label()
+
+def update_scroll_label(*args):
+    if not current_images:
+        return
+
+    N = len(current_images)
+    fraction = canvas.xview()[0]
+    index = int(fraction * (N - 1))
+
+    # Update label
+    scroll_pos_label.config(text=f"Image: {index + 1} / {N}")
+
+    # --- NEW: trigger your existing update chain ---
+    Update_Images(current_module, index + 1)
+    New_Update_Failure_Percentile(Get_Highest_Scored_Image(current_module, index + 1))
+    Update_Title(current_module, Get_Highest_Scored_Image(current_module, index + 1))
+    Update_Indicator_Status()
+    
+
+    # OPTIONAL: update the displayed image
+    # show_image(current_images[index])
+
+
+# Update label whenever scroll changes
+#def update_scroll_label(*args):
+#    start = canvas.xview()[0]
+#    scroll_pos_label.config(text=f"Position: {start:.3f}")
+
+# Bind scrollbar + canvas to update the label
+hscroll.config(command=lambda *args: (canvas.xview(*args), update_scroll_label()))
+canvas.bind("<Configure>", update_scroll_label)
+
+def initialize_scrollbar():
+    global current_images
+    current_images = []
+
+    canvas.delete("all")
+    canvas.create_rectangle(0, 0, 1, 20, fill="lightblue")
+    canvas.configure(scrollregion=(0, 0, 1, 20))
+
+    scroll_pos_label.config(text="No module selected")
+
+initialize_scrollbar()
+
+#_____________________________________________
 
 
 #for (r, c), text in labels.items():

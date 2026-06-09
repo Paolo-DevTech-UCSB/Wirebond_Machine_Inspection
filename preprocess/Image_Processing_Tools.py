@@ -97,6 +97,9 @@ def compute_combined_com(img):
     W, H = img.size
     pix = img.load()
 
+    mask = np.zeros((H, W), dtype=np.uint8)
+
+
     sum_x = 0
     sum_y = 0
     count = 0
@@ -108,6 +111,7 @@ def compute_combined_com(img):
             # Combined condition:
             #   - sensor color OR dark pixel
             if is_sensor_color(r, g, b) or (r < 20 and g < 30 and b < 100):
+                mask[y, x] = 1
                 sum_x += x
                 sum_y += y
                 count += 1
@@ -115,29 +119,50 @@ def compute_combined_com(img):
     if count == 0:
         return None, None, None
 
+    # Compute center
+    cx = sum_x / count
+    cy = sum_y / count
+
+    print("\n[DEBUG COM] mask size (H,W):", mask.shape)
+    print("[DEBUG COM] computed COM (cx, cy):", cx, cy)
+
+
+    #debug_com_mask(img, mask, cx, cy, title="Combined COM Debug")
+
     return sum_x / count, sum_y / count, count
 
 def compute_gold_com(img):
         
-        W, H = img.size
-        pix = img.load()
+    W, H = img.size
+    pix = img.load()
 
-        sum_x = 0
-        sum_y = 0
-        count = 0
+    mask = np.zeros((H, W), dtype=np.uint8)
 
-        for y in range(H):
-            for x in range(W):
-                r, g, b = pix[x, y]
-                if is_gold_color(r, g, b):
-                    sum_x += x
-                    sum_y += y
-                    count += 1
+    sum_x = 0
+    sum_y = 0
+    count = 0
 
-        if count == 0:
-            return None, None
+    for y in range(H):
+        for x in range(W):
+            r, g, b = pix[x, y]
+            if is_gold_color(r, g, b):
+                mask[y, x] = 1
+                sum_x += x
+                sum_y += y
+                count += 1
 
-        return sum_x / count, sum_y / count, count
+    if count == 0:
+        return None, None
+
+    cx = sum_x / count
+    cy = sum_y / count
+
+
+    print("\n[DEBUG COM] mask size (H,W):", mask.shape)
+    print("[DEBUG COM] computed COM (cx, cy):", cx, cy)
+    #debug_com_mask(img, mask, cx, cy, title="Gold COM Debug")
+
+    return sum_x / count, sum_y / count, count
 #-------------------------Color COM Analyzer-------------------
 
 def Analyze_Img_Colors(img):
@@ -1982,3 +2007,155 @@ def infer_missing_spoke_from_two(lines, img=None):
 def angle_diff(a, b):
     d = abs(a - b) % (2*np.pi)
     return min(d, 2*np.pi - d)
+
+import cv2
+
+def debug_com_mask(img, mask, cx, cy, title="COM Debug"):
+    # Convert PIL → NumPy if needed
+    if not isinstance(img, np.ndarray):
+        img = np.array(img)
+
+    # Convert RGB → BGR for OpenCV
+    img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+    # Create mask visualization
+    mask_vis = (mask * 255).astype(np.uint8)
+    mask_vis = cv2.cvtColor(mask_vis, cv2.COLOR_GRAY2BGR)
+
+    # Draw COM on both
+    if cx is not None and cy is not None:
+        cv2.circle(img_bgr, (int(cx), int(cy)), 10, (0, 0, 255), -1)
+        cv2.circle(mask_vis, (int(cx), int(cy)), 10, (0, 0, 255), -1)
+
+    # --- NEW: Resize both to same height ---
+    H = 600  # or any size you want
+    img_resized = cv2.resize(img_bgr, (int(img_bgr.shape[1] * H / img_bgr.shape[0]), H))
+    mask_resized = cv2.resize(mask_vis, (int(mask_vis.shape[1] * H / mask_vis.shape[0]), H))
+
+    # Combine side-by-side
+    combined = np.hstack([img_resized, mask_resized])
+
+    cv2.imshow(title, combined)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
+def debug_iter_step(img, mask, cx, cy, iteration, crop_box=None):
+    """
+    Shows:
+    - original image with COM
+    - mask with COM
+    - crop box overlay (if provided)
+    """
+
+    # Convert PIL → NumPy if needed
+    if not isinstance(img, np.ndarray):
+        img_np = np.array(img)
+    else:
+        img_np = img.copy()
+
+    # Convert RGB → BGR for OpenCV
+    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+
+    # Draw COM on original
+    if cx is not None and cy is not None:
+        cv2.circle(img_bgr, (int(cx), int(cy)), 10, (0, 0, 255), -1)
+
+    # Draw crop box
+    if crop_box is not None:
+        left, top, right, bottom = crop_box
+        cv2.rectangle(img_bgr, (left, top), (right, bottom), (0, 255, 0), 3)
+
+    # Mask visualization
+    mask_vis = (mask * 255).astype(np.uint8)
+    mask_vis = cv2.cvtColor(mask_vis, cv2.COLOR_GRAY2BGR)
+
+    if cx is not None and cy is not None:
+        cv2.circle(mask_vis, (int(cx), int(cy)), 10, (0, 0, 255), -1)
+
+    # Resize both to same height
+    H = 500
+    img_resized = cv2.resize(img_bgr, (int(img_bgr.shape[1] * H / img_bgr.shape[0]), H))
+    mask_resized = cv2.resize(mask_vis, (int(mask_vis.shape[1] * H / mask_vis.shape[0]), H))
+
+    # Combine
+    combined = np.hstack([img_resized, mask_resized])
+
+    # Label
+    cv2.putText(combined, f"Iteration {iteration}", (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,255), 3)
+
+    cv2.imshow("Iterative COM Debug", combined)
+    cv2.waitKey(0)
+
+def iterative_com_debug(img, iterations=4, crop_size=1000):
+    cx, cy, mask = compute_combined_com(img)
+
+    if cx is None or cy is None:
+        print("[DEBUG] Initial COM failed.")
+        debug_iter_step(img, mask, None, None, iteration=0)
+        return None, None
+
+    # Show initial full-image COM
+    debug_iter_step(img, mask, cx, cy, iteration=0)
+
+    for i in range(1, iterations + 1):
+
+        # Compute crop box
+        left = int(cx - crop_size/2)
+        top  = int(cy - crop_size/2)
+        right = left + crop_size
+        bottom = top + crop_size
+
+        crop_box = (left, top, right, bottom)
+
+        # Crop
+        cropped = img.crop(crop_box)
+
+        # Recompute COM inside crop
+        cx_local, cy_local, mask = compute_combined_com(cropped)
+
+        if cx_local is None:
+            print(f"[DEBUG] COM failed at iteration {i}")
+            debug_iter_step(cropped, mask, None, None, iteration=i)
+            break
+
+        # Convert local COM → global coordinates
+        cx = left + cx_local
+        cy = top + cy_local
+
+        # Show this iteration
+        debug_iter_step(img, mask, cx, cy, iteration=i, crop_box=crop_box)
+
+        # Shrink crop window
+        crop_size = crop_size // 2
+
+def compute_combined_mask(img):
+    W, H = img.size
+    pix = img.load()
+
+    mask = np.zeros((H, W), dtype=np.uint8)
+
+    sum_x = 0
+    sum_y = 0
+    count = 0
+
+    for y in range(H):
+        for x in range(W):
+            r, g, b = pix[x, y]
+            if is_sensor_color(r, g, b) or (r < 20 and g < 30 and b < 100):
+                mask[y, x] = 1
+                sum_x += x
+                sum_y += y
+                count += 1
+
+    if count == 0:
+        return None, None, None
+
+    # Compute center
+    cx = sum_x / count
+    cy = sum_y / count
+
+    
+
+    return mask

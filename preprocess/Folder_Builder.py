@@ -33,6 +33,9 @@ def get_module_paths(module_name):
 
 
 def Main_Process(Current_Module, Image_Name):
+
+    print("MAIN PROCESS IS CALLED @COPIOLET")
+
     Current_Module = Current_Module 
     Image_Name = Image_Name
     lines = []   # <--- ADD THIS
@@ -60,6 +63,9 @@ def Main_Process(Current_Module, Image_Name):
     Thin_Crop_Img = IPT.Img_Crop(img, 350, 350, 700, 850)
     x_center, y_center, count = IPT.compute_darks_com(Thin_Crop_Img)
 
+    print(">>> DEBUG: RETURN triggered at LINE X")
+
+
     if x_center is None or y_center is None:
         Image_Type = "Unprocessed"
         saved_path = save_processed_image(Thin_Crop_Img, "Unprocessed", Current_Module, Image_Name, False)
@@ -67,6 +73,9 @@ def Main_Process(Current_Module, Image_Name):
 
     if 500 < x_center < 1200 and 400 < y_center < 1000: Center_Tol = True
     else: Center_Tol = False
+
+    print(">>> DEBUG: RETURN triggered at LINE X")
+
 
     if count < 500 or Center_Tol == False:
         x_center, y_center, count2 = IPT.compute_sensor_com(Thin_Crop_Img)
@@ -98,15 +107,23 @@ def Main_Process(Current_Module, Image_Name):
 
     print("Crop bounds:", Left, Top, 600, 600 + heightbonus)
 
-    
     Classification_Crop = IPT.Img_Crop(img, Left, Top, 600, 600 + heightbonus)
+
+    print("\n[DEBUG] Full image size:", img.size)
+    #print("[DEBUG] Classification_Crop size:", Classification_Crop.size)
+    print("[DEBUG] Left, Top used for crop:", Left, Top)
     #Classification_Crop.show()
     
+    print(">>> DEBUG: RETURN triggered at LINE X")
+
+
     #SetQuality_Checker.debug_integral_bands(img)
     if SetQuality_Checker.garbage_filter(img):
         Image_Type = "Unprocessed"
     else:
         Image_Type = IPT.Classify_Img(Classification_Crop, 0, 0)
+
+    print(">>> DEBUG: Image_Type is:", Image_Type)
 
     #print(input("next..."))
     # tested: 
@@ -114,17 +131,30 @@ def Main_Process(Current_Module, Image_Name):
     ##---CLASSIFICATION COMPLETE ---> Moving To Photoprep 
 
     if Image_Type == "Cal-dot":
-        #center on combined gold and sensor
-        Processed_Center_X, Processed_Center_Y, count = IPT.compute_combined_com(Classification_Crop)
+        # center on combined gold and sensor
+        Processed_Center_X, Processed_Center_Y = IPT.compute_combined_com(Classification_Crop)
+        #print("[DEBUG] Classification_Crop size:", Classification_Crop.size)
+        print("[DEBUG] COM inside Classification_Crop:", Processed_Center_X, Processed_Center_Y)
+
+        # translate to full-image coordinates
         Processed_Center_X += Left
         Processed_Center_Y += Top
+        print("[DEBUG] COM translated to full image:", Processed_Center_X, Processed_Center_Y)
+
         moreAbove = False
+
     elif Image_Type == "Guard-ring":    
-        #center on Gold COM
+        # center on Gold COM
         Processed_Center_X, Processed_Center_Y, count = IPT.compute_gold_com(Classification_Crop)
+        #print("[DEBUG] Classification_Crop size:", Classification_Crop.size)
+        print("[DEBUG] COM inside Classification_Crop:", Processed_Center_X, Processed_Center_Y)
+
+        # translate to full-image coordinates
         Processed_Center_X += Left
         Processed_Center_Y += Top
-        moreAbove = False
+        print("[DEBUG] COM translated to full image:", Processed_Center_X, Processed_Center_Y)
+
+        moreAbove = False 
     elif Image_Type == "Default":
         #Center on Mercedes
         lines, orientation = IPT.Detect_Merc_Center(Classification_Crop, False, mode="Default")
@@ -158,6 +188,9 @@ def Main_Process(Current_Module, Image_Name):
         Processed_Center_X, Processed_Center_Y = center[0], center[1]
         #print("This is lines:", lines)
 
+        print(">>> DEBUG: RETURN triggered at LINE X")
+
+
         if Processed_Center_X is None or Processed_Center_Y is None:
             print("DMC Failed: Saving to Unprocessed folder for manual review")
             saved_path = save_processed_image(Classification_Crop, "Unprocessed", Current_Module, Image_Name, False)
@@ -177,14 +210,22 @@ def Main_Process(Current_Module, Image_Name):
         Processed_Center_X = Processed_Center_X + Left
         Processed_Center_Y = Processed_Center_Y + Top"""
 
+        #print(">>> DEBUG: RETURN triggered at LINE X")
+
 
     elif Image_Type == "Unprocessed":
         print("Photo Type: Unprocessed, skipping processing and saving to Unprocessed folder")
         saved_path = save_processed_image(Classification_Crop, "Unprocessed", Current_Module, Image_Name, False)
+       
+        print(">>> DEBUG: RETURN triggered at LINE X")
         return saved_path
     else:
         Processed_Center_X = 0; Processed_Center_Y = 0
         print("Photo Type:", Image_Type, "Not recognized")
+
+
+    print(">>> DEBUG: Image_Type is:", Image_Type)
+
 
     # Center is already translated to full-image coordinates earlier
     Last_Center_X = float(Processed_Center_X)
@@ -410,6 +451,8 @@ def save_processed_image(Processed_Crop, Image_Type, Current_Module, Image_Name,
     return save_path
 
 def Main_Controller():
+
+    print("MAIN CONTROLLER IS CALLED @COPIOLET")
     # 1. Find all module folders inside the INPUT_DIR
     base_input = os.path.join(CONFIG["BASE_DIR"], CONFIG["INPUT_DIR"])
 

@@ -49,6 +49,9 @@ def compute_new_center(img, shift=45, k=5):
     com_x = xs.mean()
     com_y = ys.mean()
 
+    print("Size of img (the input of compute_new_center): ", img.size)
+    print("Compute-new-Center Output:", com_x, com_y)
+
     return com_x, com_y
 
 
