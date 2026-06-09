@@ -5,6 +5,8 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from wb_config import RAW_DIR
+import numpy as np
+import cv2
 
 #--------------------Cropper---------------------------
 
@@ -58,7 +60,7 @@ def compute_sensor_com(img):
 
         return sum_x / count, sum_y / count, count
 
-def compute_darks_com(img):
+"""def compute_darks_com(img):
     make_mask=True
     W, H = img.size
     pix = img.load()
@@ -92,6 +94,34 @@ def compute_darks_com(img):
     #mask_img.show()
 
     return x_center, y_center, count
+
+"""
+
+
+
+def compute_darks_com(img):
+    #THIS USES CLUSTERS INSTEAD OF A GLOBAL SUM
+    arr = np.array(img)
+    gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+
+    # Threshold for true black
+    _, mask = cv2.threshold(gray, 20, 255, cv2.THRESH_BINARY_INV)
+
+    # Connected components
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
+
+    if num_labels <= 1:
+        return None, None, mask
+
+    # Find largest non-background component
+    largest_label = 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])
+
+    # Extract centroid of that component
+    cx, cy = centroids[largest_label]
+
+    return cx, cy, mask
+
+
 
 def compute_combined_com(img):
     W, H = img.size

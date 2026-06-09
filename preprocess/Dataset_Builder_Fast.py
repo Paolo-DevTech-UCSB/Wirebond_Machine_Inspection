@@ -265,7 +265,7 @@ def Main_Process(Current_Module, Raw_Image_Name, Module_Center=None):
     cx, cy, _ = IPT.compute_combined_com(img)
     return cx, cy"""
 
-def center_cal_dot(img):
+"""def center_cal_dot(img):
     img2 = img.crop((0, 350, img.width, img.height))
 
     cx, cy, _ = IPT.compute_combined_com(img2)
@@ -273,7 +273,118 @@ def center_cal_dot(img):
     # convert cropped COM → full-image COM
     cy += 350
 
-    return cx, cy
+    return cx, cy"""
+
+
+def center_cal_dot(img):
+    """
+    Cal-dot centering using:
+    1. Combined COM for global center
+    2. Radial scan to find thickest crescent region
+    3. Midpoint of sensor-colored segment on that ray
+    """
+
+    import numpy as np
+    import math
+    from PIL import ImageDraw
+
+    # ------------------------------------------------------------
+    # 1. Crop out UI bar (same as other categories)
+    # ------------------------------------------------------------
+    img2 = img.crop((0, 350, img.width, img.height))
+    arr = np.array(img2)
+
+    H, W = arr.shape[:2]
+
+    # ------------------------------------------------------------
+    # 2. Compute global COM (center of curvature)
+    # ------------------------------------------------------------
+    cx0, cy0, _ = IPT.compute_darks_com(img2)
+
+    # ------------------------------------------------------------
+    # 3. Radial scan parameters
+    # ------------------------------------------------------------
+    angles = np.arange(0, 360, 2)   # 2° resolution
+    max_radius = min(W, H) // 2
+
+    #def is_sensor_color(px):
+    #    r, g, b = px
+    #    # You can refine this threshold if needed
+    #    return (b > 100 and g < 80 and r < 80)
+
+    # ------------------------------------------------------------
+    # 4. Scan each radial line
+    # ------------------------------------------------------------
+    thickness_counts = []
+    segments = []  # store (start, end) pixel coords for each angle
+
+    for ang in angles:
+        rad = math.radians(ang)
+        dx = math.cos(rad)
+        dy = math.sin(rad)
+
+        sensor_pixels = []
+
+        for r in range(max_radius):
+            x = int(cx0 + dx * r)
+            y = int(cy0 + dy * r)
+
+            if x < 0 or x >= W or y < 0 or y >= H:
+                break
+
+            r, g, b = arr[y, x]
+            if IPT.is_sensor_color(r, g, b):
+                sensor_pixels.append((x, y))
+
+        thickness_counts.append(len(sensor_pixels))
+
+        if len(sensor_pixels) > 0:
+            segments.append(sensor_pixels)
+        else:
+            segments.append(None)
+
+    # ------------------------------------------------------------
+    # 5. Find angle with maximum thickness
+    # ------------------------------------------------------------
+    best_idx = int(np.argmax(thickness_counts))
+    best_angle = angles[best_idx]
+    best_segment = segments[best_idx]
+
+    if best_segment is None:
+        # fallback to COM if something goes wrong
+        return cx0, cy0 + 350
+
+    # ------------------------------------------------------------
+    # 6. Compute midpoint of sensor-colored segment
+    # ------------------------------------------------------------
+    (x1, y1) = best_segment[0]
+    (x2, y2) = best_segment[-1]
+
+    mid_x = (x1 + x2) / 2
+    mid_y = (y1 + y2) / 2
+
+    # ------------------------------------------------------------
+    # 7. Debug visualization
+    # ------------------------------------------------------------
+    dbg = img2.copy()
+    draw = ImageDraw.Draw(dbg)
+
+    # Draw global COM
+    draw.ellipse((cx0-5, cy0-5, cx0+5, cy0+5), outline="yellow", width=3)
+
+    # Draw best radial line
+    draw.line([(cx0, cy0), (x2, y2)], fill="red", width=2)
+
+    # Draw midpoint
+    draw.ellipse((mid_x-6, mid_y-6, mid_x+6, mid_y+6), outline="cyan", width=3)
+
+    dbg.show(title="Cal-dot Radial Debug")
+
+    # ------------------------------------------------------------
+    # 8. Convert midpoint back to full-image coordinates
+    # ------------------------------------------------------------
+    return mid_x, mid_y + 350
+
 
 
     
@@ -453,6 +564,11 @@ def compute_module_center(module_name, unprocessed_list):
     # RUN NEW CENTER FINDER (THIS EXPECTS PIL)
     # ------------------------------------------------------------
     cx, cy = compute_new_center(compiled_pil)
+    # QUICK FIX: fallback if center-finder fails
+    if cx is None or cy is None:
+        print("[WARN] compute_new_center failed — falling back to simple COM")
+        cx, cy, _ = IPT.compute_combined_com(compiled_pil)
+
     debug_show_center(compiled_pil, cx, cy, title=f"Module {module_name} - Computed Center")
 
     if cx is None or cy is None:
