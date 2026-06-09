@@ -715,10 +715,16 @@ def Main_Controller():
     
     for module in get_modules_with_unprocessed():   
         #each module is a folder --> makes a unprocessed list
-        unprocessed = get_unprocessed_images(module)         #each Each unprocessed list (module) --> makes a list of images to process
-        
-        # NEW: compute module-level center
-        module_center = compute_module_center(module, unprocessed)
+        unprocessed = get_unprocessed_images(module)
+
+        # NEW: categorize each image BEFORE computing module center
+        categorized = [(img, classify_from_filename(img)) for img in unprocessed]
+
+        # Filter only Default images
+        default_imgs = [img for img, cat in categorized if cat == "Default"]
+
+        # Compute module center ONLY from Default images
+        module_center = compute_module_center(module, default_imgs)
 
         #This moduel center? 
 
