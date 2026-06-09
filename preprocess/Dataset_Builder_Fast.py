@@ -11,6 +11,26 @@ import re
 RAW_DIR = os.path.join(CONFIG["BASE_DIR"], CONFIG["INPUT_DIR"])
 PROCESSED_DIR = os.path.join(CONFIG["BASE_DIR"], CONFIG["PROCESSED_DIR"])
 
+
+def center_notch(img):
+    """
+    Notch images are rare and not used for blending.
+    We use a static center based on image dimensions.
+    """
+
+    W, H = img.size
+
+    # Static center (middle of the image)
+    cx = W // 2
+    cy = H // 2
+
+    # Optional: small offset if notch is always in a known direction
+    # cx += 0
+    cy += 80
+
+    return cx, cy
+
+
 def classify_from_filename(Image_Name):
     """
     Determine the image category based on filename.
@@ -28,7 +48,7 @@ def classify_from_filename(Image_Name):
 
     Guard_Ring_IDs = {"Guard", "guard", "guardring", "Guard-ring", "guard-ring", "ring", "Ring"}
     Cal_Dot_IDs = {"cal", "dot", "cal-dot", "Cal-dot", "Caldot", "Cal_dot"}
-    Notch_IDs = {"Notch", "notch"} 
+    Notch_IDs = {"Notch", "notch", "Shield", "shield"} 
     
     if any(id in Image_Name for id in Guard_Ring_IDs):
         return "Guard-ring"
@@ -162,6 +182,11 @@ def Main_Process(Current_Module, Raw_Image_Name, Module_Center=None):
 
         center_x, center_y = cx_refined, cy_refined
         """
+
+    elif category == "Notch":
+        print("[INFO] Notch category detected — using default centering for now.")
+        center_x, center_y = center_notch(img)
+        #debug_show_center(img, center_x, center_y, title=f"{category} notch - center")
 
 
     elif category == "Default":
