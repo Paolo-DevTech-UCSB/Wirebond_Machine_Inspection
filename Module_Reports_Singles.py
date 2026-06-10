@@ -6,7 +6,7 @@ from Folder_to_Report_config import CONFIG
 
 from Boundry_Matching import main as boundary_matcher
 
-MODEL_PATH = r"C:\Users\hep\Documents\GitHub Forks\Wirebond_Inspector\Wirebond_Machine_Inspection\runs\detect\train-5\weights\best.pt"
+MODEL_PATH = r"C:\Users\hep\Documents\GitHub Forks\Wirebond_Inspector\Wirebond_Machine_Inspection\runs\detect\train-12\weights\best.pt"
 
 def evaluate_module(module_id):
 
