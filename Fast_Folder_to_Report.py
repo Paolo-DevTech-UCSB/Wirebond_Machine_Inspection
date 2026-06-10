@@ -6,6 +6,7 @@ import preprocess.Dataset_Builder_Fast as Folder_Builder
 from Module_Reports_Singles import evaluate_module
 import os
 from Folder_to_Report_config import CONFIG
+import Text_Report
 
 #run a modified version of processor master, use the new configuration file in such
 print("USING wb_config FROM:", Folder_to_Report_config.__file__)
@@ -25,7 +26,8 @@ modules = [
     and d not in CATEGORY_FOLDERS
 ]
 
-
 for module in modules:
-    evaluate_module(module)
+    if Text_Report.check_module_completeness(module):
+        evaluate_module(module)
 
+Text_Report.Main()
