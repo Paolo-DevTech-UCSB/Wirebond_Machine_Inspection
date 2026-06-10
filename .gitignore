@@ -1,0 +1,18 @@
+# Python virtual environments
+venv/
+venv310/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ultralytics / YOLO training outputs
+runs/
+
+# VSCode settings (optional)
+.vscode/
+
+# Windows junk
+Thumbs.db
