@@ -1,5 +1,6 @@
 import Folder_to_Report_config
-from numpy import fix
+#from numpy import fix
+import numpy as np
 import preprocess.Default_Post_Cleanup as DPC
 import preprocess.Dataset_Builder_Fast as Folder_Builder
 from Module_Reports_Singles import evaluate_module

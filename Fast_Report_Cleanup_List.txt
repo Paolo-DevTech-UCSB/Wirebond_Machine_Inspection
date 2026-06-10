@@ -1,0 +1,47 @@
+Fast_Folder_to_Report.py dependency cleanup report
+
+Verified by scanning Python import dependencies from Fast_Folder_to_Report.py.
+
+Files kept because they are part of the Fast_Folder_to_Report.py dependency chain:
+- Fast_Folder_to_Report.py
+- Folder_to_Report_config.py
+- wb_config.py
+- Boundry_Matching.py
+- Module_Reports_Singles.py
+- preprocess.Dataset_Builder_Fast.py
+- preprocess.Default_Post_Cleanup.py
+- preprocess.Folder_Builder.py
+- preprocess.Image_Processing_Tools.py
+- preprocess.SetQuality_Checker.py
+- preprocess.ToDo_Manager.py
+- preprocess.orientation_verification.py
+
+Files removed because they are not used by Fast_Folder_to_Report.py or its dependency chain:
+- Fast_Folder_to_Report_NO_MODEL.py
+- Fast_Preprocessor_Master.py
+- Folder_to_Report.py
+- Model_Management/Debugging_Temp_Script.py
+- Model_Management/Module_Reports.py
+- Model_Management/New_Export.py
+- Model_Management/New_Tester.py
+- New_Converter.py
+- New_Trainer.py
+- New_Validate.py
+- preprocess.Dataset_Builder_Lite.py
+- preprocess.Image_Centering.py
+- preprocess.Newer_IPT.py
+- preprocess.post_run_category_report.py
+- preprocess.TK_Reviewer_PG.py
+- Processor_Master.py
+- Relabeler.py
+- REMAPPER.py
+- SyncSourceFolder.py
+- test.py
+- test2.py
+- TK_Reviewer.py
+- TK_Testing.py
+- tmp_dep_check.py
+
+Important note:
+- No functions were removed from the active dependency chain files.
+- The active entry points preserved were Fast_Folder_to_Report.py -> Folder_Builder.Main_Controller(), DPC.Post_Default_Cleanup(), and evaluate_module().
