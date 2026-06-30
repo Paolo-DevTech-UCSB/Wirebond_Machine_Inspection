@@ -160,10 +160,20 @@ def Main():
 
     
 def check_module_completeness(module):
+    # Retrieve the paths
     pathslist = get_all_report_file_paths()
-    if module not in [os.path.basename(p).split("_")[0] for p in pathslist]:
-        print(f"Module {module} is missing a report file.") 
-        return False
+    
+    # 1. os.path.dirname(p) gets the parent folder's full path: "C:\...\320MHF2TDSB0135"
+    # 2. os.path.basename(...) gets just the folder name: "320MHF2TDSB0135"
+    # 3. Using a set() instead of a list [] makes the lookup instant.
+    extracted_modules = set(os.path.basename(os.path.dirname(p)) for p in pathslist)
+    
+    # Clean the input just in case there are invisible spaces
+    clean_module = module.strip()
+
+    if clean_module not in extracted_modules:
+        print(f"Module {clean_module} is missing a report file.") 
+        return True 
     else:
-        print(f"Module {module} has a report file.")
-        return True
+        print(f"Module {clean_module} has a report file.")
+        return False
