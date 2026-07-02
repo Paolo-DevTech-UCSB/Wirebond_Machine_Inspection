@@ -27,7 +27,7 @@ modules = [
 ]
 
 for module in modules:
-    if Text_Report.check_module_completeness(module):
+    if not Text_Report.check_module_completeness(module):
         evaluate_module(module)
 
 Text_Report.Main()
