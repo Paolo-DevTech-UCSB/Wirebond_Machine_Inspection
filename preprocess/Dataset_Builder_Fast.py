@@ -7,6 +7,7 @@ from preprocess.orientation_verification import verify_orientation
 import preprocess.SetQuality_Checker as SetQuality_Checker
 from Folder_to_Report_config import CONFIG
 import re
+import Text_Report
 
 RAW_DIR = os.path.join(CONFIG["BASE_DIR"], CONFIG["INPUT_DIR"])
 PROCESSED_DIR = os.path.join(CONFIG["BASE_DIR"], CONFIG["PROCESSED_DIR"])
@@ -197,7 +198,7 @@ def Main_Process(Current_Module, Raw_Image_Name, Module_Center=None):
             print(f"[WARN] Module center missing — falling back to per-image center")
             #debug_integral_bands(img)
             import matplotlib.pyplot as plt
-            plt.show()
+#           plt.show()
 
             cx_blend, cy_blend = compute_new_center(img)
             if cx_blend is None:
@@ -403,7 +404,7 @@ def center_cal_dot(img):
     # Draw midpoint
     draw.ellipse((mid_x-6, mid_y-6, mid_x+6, mid_y+6), outline="cyan", width=3)
 
-    dbg.show(title="Cal-dot Radial Debug")
+#    dbg.show(title="Cal-dot Radial Debug")
 
     # ------------------------------------------------------------
     # 8. Convert midpoint back to full-image coordinates
@@ -594,13 +595,13 @@ def compute_module_center(module_name, unprocessed_list):
         print("[WARN] compute_new_center failed — falling back to simple COM")
         cx, cy, _ = IPT.compute_combined_com(compiled_pil)
 
-    debug_show_center(compiled_pil, cx, cy, title=f"Module {module_name} - Computed Center")
+#    debug_show_center(compiled_pil, cx, cy, title=f"Module {module_name} - Computed Center")
 
     if cx is None or cy is None:
-        debug_integral_bands(compiled_pil)
+#       debug_integral_bands(compiled_pil)
 
         import matplotlib.pyplot as plt
-        plt.show()   # <-- FORCE debugger window to appear
+#        plt.show()   # <-- FORCE debugger window to appear
 
         print(f"[ERROR] compute_new_center failed for module {module_name}")
         return None
@@ -643,7 +644,7 @@ def show_module_center_debug(compiled_img, cx, cy, module_name="Module"):
     plt.imshow(cv2.cvtColor(vis, cv2.COLOR_BGR2RGB))
     plt.title(f"Module Center Debug: {module_name}\nCenter=({cx}, {cy})")
     plt.axis("off")
-    plt.show()
+#    plt.show()
 
 
 
@@ -729,13 +730,28 @@ def Main_Controller():
     def get_modules_with_unprocessed():
         modules = get_all_modules()
         todo_modules = []
+        new_to_do = []
 
         for module in modules:
             unprocessed = get_unprocessed_images(module)
             if len(unprocessed) > 0:
                 todo_modules.append(module)
-
-        return todo_modules
+        
+        print("DEBUG: This is the OLD to do list:", todo_modules)
+        
+        for module in todo_modules:
+            
+            # Assuming checkModuleCompleteness is returning true for a done module
+            if Text_Report.check_module_completeness(module):
+                new_to_do.append(module)
+            else: print("Debug: Module ", module, "will not be preprocessed")
+                                
+        
+        print("DEBUG: input imgs --> processed imgs:  to do list made")
+        print("This is the new to do list:", new_to_do)
+        
+        #return todo_modules
+        return new_to_do
 
     
     for module in get_modules_with_unprocessed():   
@@ -810,7 +826,7 @@ def show_image_with_vector(img, vec):
     draw.line((cx, cy, end_x, end_y), fill="red", width=3)
 
     # Show the result
-    img_copy.show()
+#    img_copy.show()
 
 from PIL import Image
 
@@ -844,5 +860,5 @@ def mask_to_preview(mask, color=(0, 255, 0)):
             if mask_pixels[x, y] > 0:
                 preview_pixels[x, y] = (r, g, b)
 
-    preview.show()
+#    preview.show()
     return preview
