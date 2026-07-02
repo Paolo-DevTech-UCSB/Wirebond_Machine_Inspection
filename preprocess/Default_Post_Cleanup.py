@@ -334,7 +334,7 @@ def debug_sensor_fr4_ring(img):
     plt.imshow(vis)
     plt.title(f"Sensor={sensor_ratio:.2f},  FR4={fr4_ratio:.2f}")
     plt.axis("off")
-    plt.show()
+    #plt.show()
 
     return sensor_ratio, fr4_ratio
 

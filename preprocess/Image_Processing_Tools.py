@@ -13,7 +13,7 @@ import cv2
 def Img_Crop(Image, X_off, Y_off, Width, Height, Details = False):
     cropped_img = Image.crop((X_off, Y_off, X_off + Width, Y_off + Height))
 
-    if Details: cropped_img.show()
+    #if Details: cropped_img.show()
     cropped_img = cropped_img.convert("RGB")
     return cropped_img
 
@@ -973,7 +973,7 @@ def plot_debug(img, cx, cy, green_list, blue_list, green_pts, blue_pts, lines=No
 
     ax.legend()
     plt.gca().invert_yaxis()  # Match image coordinate system
-    plt.show()
+    #plt.show()
 
 def score_lines_by_angle(lines, cx=None, cy=None):
     """

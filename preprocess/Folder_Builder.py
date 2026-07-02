@@ -380,7 +380,7 @@ def more_above2(rays):
             plt.text(p2[0], p2[1], f"Ray {i}", color=colors[i], fontsize=12)
 
         plt.grid(True)
-        plt.show()
+        #plt.show()
 
     #debug_plot_rays_fixed(rays)
 

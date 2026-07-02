@@ -197,7 +197,7 @@ def Main_Process(Current_Module, Raw_Image_Name, Module_Center=None):
             print(f"[WARN] Module center missing — falling back to per-image center")
             #debug_integral_bands(img)
             import matplotlib.pyplot as plt
-            plt.show()
+            #plt.show()
 
             cx_blend, cy_blend = compute_new_center(img)
             if cx_blend is None:
@@ -600,7 +600,7 @@ def compute_module_center(module_name, unprocessed_list):
         debug_integral_bands(compiled_pil)
 
         import matplotlib.pyplot as plt
-        plt.show()   # <-- FORCE debugger window to appear
+        #plt.show()   # <-- FORCE debugger window to appear
 
         print(f"[ERROR] compute_new_center failed for module {module_name}")
         return None
@@ -643,7 +643,7 @@ def show_module_center_debug(compiled_img, cx, cy, module_name="Module"):
     plt.imshow(cv2.cvtColor(vis, cv2.COLOR_BGR2RGB))
     plt.title(f"Module Center Debug: {module_name}\nCenter=({cx}, {cy})")
     plt.axis("off")
-    plt.show()
+    #plt.show()
 
 
 
@@ -810,7 +810,7 @@ def show_image_with_vector(img, vec):
     draw.line((cx, cy, end_x, end_y), fill="red", width=3)
 
     # Show the result
-    img_copy.show()
+    #img_copy.show()
 
 from PIL import Image
 
@@ -844,5 +844,5 @@ def mask_to_preview(mask, color=(0, 255, 0)):
             if mask_pixels[x, y] > 0:
                 preview_pixels[x, y] = (r, g, b)
 
-    preview.show()
+    #preview.show()
     return preview
