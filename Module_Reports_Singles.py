@@ -14,6 +14,8 @@ def evaluate_module(module_id):
 
     module_input, module_output = get_module_paths(module_id)
     default_folder = module_output["Default"]
+    guardring_folder = module_output["Guard-ring"]
+    caldot_folder = module_output["Cal-dot"]
 
     report_root = os.path.join(
         CONFIG["BASE_DIR"],
@@ -22,14 +24,21 @@ def evaluate_module(module_id):
     )
     os.makedirs(report_root, exist_ok=True)
 
-    image_paths = [
-        os.path.join(default_folder, f)
-        for f in os.listdir(default_folder)
-        if f.lower().endswith((".png", ".jpg", ".jpeg"))
-    ]
+    image_paths = []
+    for folder in (default_folder, guardring_folder, caldot_folder):
+        if not os.path.isdir(folder):
+            continue
+
+        image_paths.extend(
+            os.path.join(folder, f)
+            for f in os.listdir(folder)
+            if f.lower().endswith((".png", ".jpg", ".jpeg"))
+        )
+
+    image_paths = sorted(set(image_paths))
 
     if not image_paths:
-        print(f"No Default images found for module {module_id}")
+        print(f"No images found in Default/Guard-ring/Cal-dot folders for module {module_id}")
         return
 
     print(f"\n=== Evaluating Module {module_id} ===")
